@@ -13,6 +13,8 @@ interface PMMRow {
   pmm_use_case: string
   visibility_score: number
   delta: number | null
+  citation_share: number | null
+  avg_position: number | null
   total_responses: number
   timeseries: { date: string; value: number }[]
 }
@@ -276,7 +278,7 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
     }
   }
 
-  const colSpan = compareEnabled ? 5 : 4
+  const colSpan = compareEnabled ? 7 : 6
 
   return (
     <div className="space-y-4">
@@ -328,6 +330,8 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
                 <th className="pb-2 text-left" style={labelStyle}>PMM Solution</th>
                 <th className="pb-2 text-right" style={labelStyle}>Visibility</th>
                 {compareEnabled && <th className="pb-2 text-right" style={labelStyle}>vs Prev</th>}
+                <th className="pb-2 text-right" style={labelStyle}>Citation Share</th>
+                <th className="pb-2 text-right" style={labelStyle}>Avg Pos</th>
                 <th className="pb-2 text-right" style={labelStyle}>Responses</th>
                 <th className="pb-2" style={{ width: '24px' }} />
               </tr>
@@ -367,6 +371,12 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
                           ) : <span style={{ color: 'rgba(26,25,21,0.3)', fontSize: '11px' }}>—</span>}
                         </td>
                       )}
+                      <td className="py-2.5 text-right text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.55)' }}>
+                        {row.citation_share != null ? `${row.citation_share.toFixed(1)}%` : '—'}
+                      </td>
+                      <td className="py-2.5 text-right text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.55)' }}>
+                        {row.avg_position != null ? `#${row.avg_position.toFixed(1)}` : '—'}
+                      </td>
                       <td className="py-2.5 text-right text-[12px] font-semibold tabular-nums" style={{ color: 'rgba(26,25,21,0.5)' }}>
                         {row.total_responses.toLocaleString()}
                       </td>

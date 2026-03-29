@@ -4,10 +4,10 @@ import { useCallback, useEffect, useState } from 'react'
 import { useGlobalFilters } from '@/context/GlobalFilters'
 import { supabase } from '@/lib/supabase/client'
 import { getLatestInsight, getActiveAnomalies } from '@/lib/queries/home'
-import { getVisibilityScore, getDataFreshnessStats, getClayOverallTimeseries, getCompetitorLeaderboard, getVisibilityByPMM, getPMMTable, getClaygentTimeseries, getClaygentCount, getFollowupTimeseries, getMentionBreakdown, getPMMPromptDrilldown } from '@/lib/queries/visibility'
+import { getVisibilityScore, getDataFreshnessStats, getClayOverallTimeseries, getCompetitorLeaderboard, getCompetitorVisibilityTimeseries, getVisibilityByPMM, getPMMTable, getClaygentTimeseries, getClaygentCount, getFollowupTimeseries, getMentionBreakdown, getPMMPromptDrilldown } from '@/lib/queries/visibility'
 import type { MentionTopicRow } from '@/lib/queries/visibility'
 import { getSentimentBreakdown } from '@/lib/queries/sentiment'
-import { getCitationCount, getCitationOverallTimeseries, getTopCitedDomainsWithURLs } from '@/lib/queries/citations'
+import { getCitationCount, getCitationOverallTimeseries, getTopCitedDomainsWithURLs, getCompetitorCitationTimeseries } from '@/lib/queries/citations'
 import { getAvgPosition } from '@/lib/queries/visibility'
 import type { InsightRow, AnomalyRow, CompetitorRow } from '@/lib/queries/types'
 import InsightCard from '@/components/cards/InsightCard'
@@ -16,7 +16,9 @@ import KpiCard from '@/components/cards/KpiCard'
 import { SkeletonCard, SkeletonChart } from '@/components/shared/Skeleton'
 import { formatDate, formatShortDate } from '@/lib/utils/formatters'
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { LineChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts'
+import { LineChart, Line, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts'
+import { Info } from 'lucide-react'
+import { CHART_COLORS } from '@/lib/utils/colors'
 import CitationSection from '@/components/home/CitationSection'
 import PMMTopicsSection from '@/components/home/PMMTopicsSection'
 import ClaygentSection from '@/components/home/ClaygentSection'
@@ -39,9 +41,12 @@ export default function HomePage() {
 
   const [loadingExtra, setLoadingExtra] = useState(true)
   const [citationTimeseries, setCitationTimeseries] = useState<{ date: string; value: number }[]>([])
-  const [citedDomains, setCitedDomains] = useState<{ domain: string; citation_count: number; share_pct: number; is_clay: boolean; top_urls: { url: string; title: string | null; count: number }[] }[]>([])
+  const [competitorCitTimeseries, setCompetitorCitTimeseries] = useState<{ date: string; domain: string; value: number }[]>([])
+  const [competitorVisTimeseries, setCompetitorVisTimeseries] = useState<{ date: string; competitor: string; value: number }[]>([])
+  const [showVisCompetitors, setShowVisCompetitors] = useState(false)
+  const [citedDomains, setCitedDomains] = useState<{ domain: string; citation_count: number; share_pct: number; is_clay: boolean; citation_type: string | null; top_urls: { url: string; title: string | null; count: number }[] }[]>([])
   const [pmmSeries, setPmmSeries] = useState<{ date: string; value: number; pmm_use_case?: string }[]>([])
-  const [pmmTable, setPmmTable] = useState<{ pmm_use_case: string; visibility_score: number; delta: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]>([])
+  const [pmmTable, setPmmTable] = useState<{ pmm_use_case: string; visibility_score: number; delta: number | null; citation_share: number | null; avg_position: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]>([])
   const [claygentTimeseries, setClaygentTimeseries] = useState<{ date: string; count: number }[]>([])
   const [followupTimeseries, setFollowupTimeseries] = useState<{ date: string; count: number }[]>([])
   const [claygentBreakdown, setClaygentBreakdown] = useState<MentionTopicRow[]>([])
@@ -82,15 +87,19 @@ export default function HomePage() {
     Promise.all([
       getCitationOverallTimeseries(supabase, f),
       getTopCitedDomainsWithURLs(supabase, f),
+      getCompetitorCitationTimeseries(supabase, f),
+      getCompetitorVisibilityTimeseries(supabase, f),
       getVisibilityByPMM(supabase, f),
       getPMMTable(supabase, f),
       getClaygentTimeseries(supabase, f),
       getFollowupTimeseries(supabase, f),
       getMentionBreakdown(supabase, f, 'claygent_or_mcp_mentioned'),
       getMentionBreakdown(supabase, f, 'clay_recommended_followup'),
-    ]).then(([citTs, citDom, pmmTs, pmmTbl, claygentTs, followupTs, claygentBd, followupBd]) => {
+    ]).then(([citTs, citDom, compCitTs, compVisTs, pmmTs, pmmTbl, claygentTs, followupTs, claygentBd, followupBd]) => {
       setCitationTimeseries(citTs)
       setCitedDomains(citDom)
+      setCompetitorCitTimeseries(compCitTs)
+      setCompetitorVisTimeseries(compVisTs)
       setPmmSeries(pmmTs)
       setPmmTable(pmmTbl)
       setClaygentTimeseries(claygentTs)
@@ -115,6 +124,28 @@ export default function HomePage() {
     if (!avgPos?.current || !avgPos?.previous) return null
     return avgPos.current - avgPos.previous
   }
+
+  // Build visibility trend chart data (Clay + optional top-5 competitors)
+  const visChartDates = [...new Set([
+    ...sparkData.map(r => r.date),
+    ...(showVisCompetitors ? competitorVisTimeseries.map(r => r.date) : []),
+  ])].sort()
+  const visCompTotals = new Map<string, number>()
+  if (showVisCompetitors) {
+    for (const r of competitorVisTimeseries) {
+      visCompTotals.set(r.competitor, (visCompTotals.get(r.competitor) ?? 0) + r.value)
+    }
+  }
+  const topVisComps = [...visCompTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c]) => c)
+  const sparkLookup = new Map(sparkData.map(r => [r.date, r.value]))
+  const visCompLookup = new Map(competitorVisTimeseries.map(r => [`${r.date}|||${r.competitor}`, r.value]))
+  const visChartData = visChartDates.map(date => {
+    const row: Record<string, string | number> = { date, Clay: sparkLookup.get(date) ?? 0 }
+    if (showVisCompetitors) {
+      for (const c of topVisComps) row[c] = visCompLookup.get(`${date}|||${c}`) ?? 0
+    }
+    return row
+  })
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6 max-w-7xl mx-auto">
@@ -190,12 +221,35 @@ export default function HomePage() {
       {/* Sparkline + top competitor */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="md:col-span-2 p-4" style={{ background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }}>
-          <h3 className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: 'rgba(26,25,21,0.45)' }}>Visibility Score — 7-day trend</h3>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center">
+              <h3 className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'rgba(26,25,21,0.45)' }}>Visibility Score Trend</h3>
+              <span className="group relative ml-1.5 inline-block">
+                <Info size={12} style={{ color: 'rgba(26,25,21,0.35)', cursor: 'help', verticalAlign: 'middle' }} />
+                <span className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-60 rounded-lg px-3 py-2 text-[11px] leading-relaxed font-medium shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity"
+                  style={{ background: 'var(--clay-black)', color: 'white', whiteSpace: 'normal' }}>
+                  % of AI responses that mention Clay by name, across all prompts and platforms.
+                </span>
+              </span>
+            </div>
+            {!loadingExtra && competitorVisTimeseries.length > 0 && (
+              <button
+                onClick={() => setShowVisCompetitors(v => !v)}
+                className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded transition-colors"
+                style={{
+                  background: showVisCompetitors ? 'var(--clay-black)' : 'rgba(26,25,21,0.06)',
+                  color: showVisCompetitors ? 'white' : 'rgba(26,25,21,0.55)',
+                }}
+              >
+                {showVisCompetitors ? 'Hide competitors' : 'Show competitors'}
+              </button>
+            )}
+          </div>
           {loading ? (
             <SkeletonChart />
-          ) : sparkData.length > 1 ? (
-            <ResponsiveContainer width="100%" height={100}>
-              <LineChart data={sparkData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+          ) : visChartData.length > 1 ? (
+            <ResponsiveContainer width="100%" height={showVisCompetitors ? 140 : 100}>
+              <LineChart data={visChartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(26,25,21,0.06)" />
                 <XAxis
                   dataKey="date"
@@ -214,17 +268,26 @@ export default function HomePage() {
                 />
                 <Tooltip
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  formatter={(val: any) => [`${Number(val).toFixed(1)}%`, 'Visibility']}
+                  formatter={(val: any, name: any) => [`${Number(val).toFixed(1)}%`, name]}
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   labelFormatter={(l: any) => formatShortDate(String(l))}
                   contentStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans', border: '1px solid var(--clay-border-dashed)', borderRadius: '8px' }}
                 />
-                <Line type="monotone" dataKey="value" stroke="var(--clay-black)" strokeWidth={2.5} dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} />
+                {showVisCompetitors && (
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans' }} />
+                )}
+                <Line type="monotone" dataKey="Clay" stroke="var(--clay-black)" strokeWidth={2.5}
+                  dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="Clay" />
+                {showVisCompetitors && topVisComps.map((c, i) => (
+                  <Line key={c} type="monotone" dataKey={c}
+                    stroke={CHART_COLORS[(i + 2) % CHART_COLORS.length]}
+                    strokeWidth={1.8} dot={{ r: 2, strokeWidth: 0 }} activeDot={{ r: 4 }} name={c} />
+                ))}
               </LineChart>
             </ResponsiveContainer>
-          ) : sparkData.length === 1 ? (
+          ) : visChartData.length === 1 ? (
             <div className="py-6 text-center">
-              <p className="text-2xl font-bold" style={{ color: 'var(--clay-black)' }}>{sparkData[0].value.toFixed(1)}%</p>
+              <p className="text-2xl font-bold" style={{ color: 'var(--clay-black)' }}>{(visChartData[0].Clay as number).toFixed(1)}%</p>
               <p className="text-[10px] font-bold uppercase tracking-wider mt-1" style={{ color: 'rgba(26,25,21,0.4)' }}>Only 1 data point — run again tomorrow to see a trend</p>
             </div>
           ) : (
@@ -259,7 +322,9 @@ export default function HomePage() {
       {/* Citations */}
       <div>
         <h2 className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'rgba(26,25,21,0.45)' }}>Citations</h2>
-        {loadingExtra ? <div className="space-y-4"><SkeletonChart /><SkeletonChart /></div> : <CitationSection timeseries={citationTimeseries} domains={citedDomains} />}
+        {loadingExtra ? <div className="space-y-4"><SkeletonChart /><SkeletonChart /></div> : (
+          <CitationSection timeseries={citationTimeseries} domains={citedDomains} competitorTimeseries={competitorCitTimeseries} />
+        )}
       </div>
 
       {/* Topic Visibility */}

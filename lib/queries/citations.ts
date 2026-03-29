@@ -199,6 +199,56 @@ export async function getCitationCount(
   return { current, previous }
 }
 
+export async function getCompetitorCitationTimeseries(
+  sb: SupabaseClient,
+  f: FilterParams,
+  topN = 5
+): Promise<{ date: string; domain: string; value: number }[]> {
+  // Responses for denominator
+  const { data: responses } = await applyResponseFilters(
+    sb.from('responses').select('run_date'),
+    f
+  )
+  if (!responses?.length) return []
+  const totalByDate = new Map<string, number>()
+  for (const r of responses) {
+    const date = (r.run_date ?? '').substring(0, 10)
+    if (date) totalByDate.set(date, (totalByDate.get(date) ?? 0) + 1)
+  }
+
+  let q = sb.from('citation_domains').select('domain, run_date')
+    .gte('run_date', f.startDate).lte('run_date', f.endDate)
+  if (f.platforms?.length) q = q.in('platform', f.platforms)
+  const { data } = await q
+  if (!data?.length) return []
+
+  // Top N non-clay domains overall
+  const totals = new Map<string, number>()
+  for (const r of data) {
+    const d = (r.domain ?? '').toLowerCase()
+    if (!d || d.includes('clay.com')) continue
+    totals.set(d, (totals.get(d) ?? 0) + 1)
+  }
+  const topDomains = new Set(
+    [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, topN).map(([d]) => d)
+  )
+
+  const map = new Map<string, number>()
+  for (const r of data) {
+    const d = (r.domain ?? '').toLowerCase()
+    if (!topDomains.has(d)) continue
+    const date = (r.run_date ?? '').substring(0, 10)
+    if (!date) continue
+    map.set(`${date}|||${d}`, (map.get(`${date}|||${d}`) ?? 0) + 1)
+  }
+
+  return Array.from(map.entries()).map(([key, count]) => {
+    const [date, domain] = key.split('|||')
+    const total = totalByDate.get(date) ?? 0
+    return { date, domain, value: total > 0 ? (count / total) * 100 : 0 }
+  }).sort((a, b) => a.date.localeCompare(b.date))
+}
+
 export async function getCitationOverallTimeseries(
   sb: SupabaseClient,
   f: FilterParams
@@ -230,7 +280,7 @@ export async function getCitationOverallTimeseries(
 export async function getTopCitedDomainsWithURLs(
   sb: SupabaseClient,
   f: FilterParams
-): Promise<{ domain: string; citation_count: number; share_pct: number; is_clay: boolean; top_urls: { url: string; title: string | null; count: number }[] }[]> {
+): Promise<{ domain: string; citation_count: number; share_pct: number; is_clay: boolean; citation_type: string | null; top_urls: { url: string; title: string | null; count: number }[] }[]> {
   let query = sb
     .from('citation_domains')
     .select('domain, url, title, citation_type')
@@ -242,13 +292,14 @@ export async function getTopCitedDomainsWithURLs(
   if (!data?.length) return []
 
   const total = data.length
-  const domainMap = new Map<string, { count: number; is_clay: boolean; urls: Map<string, { title: string | null; count: number }> }>()
+  const domainMap = new Map<string, { count: number; is_clay: boolean; typeCounts: Map<string, number>; urls: Map<string, { title: string | null; count: number }> }>()
 
   for (const row of data) {
     const d = (row.domain ?? '').toLowerCase()
     if (!d) continue
-    const cur = domainMap.get(d) ?? { count: 0, is_clay: d.includes('clay.com'), urls: new Map() }
+    const cur = domainMap.get(d) ?? { count: 0, is_clay: d.includes('clay.com'), typeCounts: new Map(), urls: new Map() }
     cur.count++
+    if (row.citation_type) cur.typeCounts.set(row.citation_type, (cur.typeCounts.get(row.citation_type) ?? 0) + 1)
     if (row.url) {
       const u = cur.urls.get(row.url) ?? { title: row.title ?? null, count: 0 }
       u.count++
@@ -258,16 +309,23 @@ export async function getTopCitedDomainsWithURLs(
   }
 
   return Array.from(domainMap.entries())
-    .map(([domain, { count, is_clay, urls }]) => ({
-      domain,
-      citation_count: count,
-      share_pct: total > 0 ? (count / total) * 100 : 0,
-      is_clay,
-      top_urls: Array.from(urls.entries())
-        .map(([url, { title, count }]) => ({ url, title, count }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 8),
-    }))
+    .map(([domain, { count, is_clay, typeCounts, urls }]) => {
+      // Pick most frequent citation_type for this domain
+      const citation_type = typeCounts.size > 0
+        ? [...typeCounts.entries()].sort((a, b) => b[1] - a[1])[0][0]
+        : (is_clay ? 'Clay' : null)
+      return {
+        domain,
+        citation_count: count,
+        share_pct: total > 0 ? (count / total) * 100 : 0,
+        is_clay,
+        citation_type,
+        top_urls: Array.from(urls.entries())
+          .map(([url, { title, count }]) => ({ url, title, count }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 8),
+      }
+    })
     .sort((a, b) => b.citation_count - a.citation_count)
     .slice(0, 20)
 }

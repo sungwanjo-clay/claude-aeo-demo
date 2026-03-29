@@ -253,28 +253,31 @@ export async function getVisibilityByPMM(
 export async function getPMMTable(
   sb: SupabaseClient,
   f: FilterParams
-): Promise<{ pmm_use_case: string; visibility_score: number; delta: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]> {
+): Promise<{ pmm_use_case: string; visibility_score: number; delta: number | null; citation_share: number | null; avg_position: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]> {
   const [cur, prev] = await Promise.all([
-    applyFilters(sb.from('responses').select('run_date, pmm_use_case, clay_mentioned'), f).then((r: any) => r.data ?? []),
+    applyFilters(sb.from('responses').select('run_date, pmm_use_case, clay_mentioned, cited_domains, clay_mention_position'), f).then((r: any) => r.data ?? []),
     applyFilters(sb.from('responses').select('pmm_use_case, clay_mentioned'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }).then((r: any) => r.data ?? []),
   ])
 
-  // Current period aggregation
-  const curMap = new Map<string, { mentioned: number; total: number; byDate: Map<string, { m: number; t: number }> }>()
+  const curMap = new Map<string, { mentioned: number; total: number; cited: number; positions: number[]; byDate: Map<string, { m: number; t: number }> }>()
   for (const row of cur) {
     if (!row.pmm_use_case) continue
     const date = (row.run_date ?? '').substring(0, 10)
-    if (!curMap.has(row.pmm_use_case)) curMap.set(row.pmm_use_case, { mentioned: 0, total: 0, byDate: new Map() })
+    if (!curMap.has(row.pmm_use_case)) curMap.set(row.pmm_use_case, { mentioned: 0, total: 0, cited: 0, positions: [], byDate: new Map() })
     const entry = curMap.get(row.pmm_use_case)!
     entry.total++
     if (row.clay_mentioned === 'Yes') entry.mentioned++
+    if (row.clay_mention_position != null) entry.positions.push(row.clay_mention_position)
+    try {
+      const domains = Array.isArray(row.cited_domains) ? row.cited_domains : JSON.parse(row.cited_domains ?? '[]')
+      if (domains.some((d: string) => typeof d === 'string' && d.toLowerCase().includes('clay.com'))) entry.cited++
+    } catch { /* ignore */ }
     const d = entry.byDate.get(date) ?? { m: 0, t: 0 }
     d.t++
     if (row.clay_mentioned === 'Yes') d.m++
     entry.byDate.set(date, d)
   }
 
-  // Previous period aggregation
   const prevMap = new Map<string, { mentioned: number; total: number }>()
   for (const row of prev) {
     if (!row.pmm_use_case) continue
@@ -284,7 +287,7 @@ export async function getPMMTable(
     prevMap.set(row.pmm_use_case, entry)
   }
 
-  return Array.from(curMap.entries()).map(([pmm_use_case, { mentioned, total, byDate }]) => {
+  return Array.from(curMap.entries()).map(([pmm_use_case, { mentioned, total, cited, positions, byDate }]) => {
     const curScore = total > 0 ? (mentioned / total) * 100 : 0
     const prev = prevMap.get(pmm_use_case)
     const prevScore = prev && prev.total > 0 ? (prev.mentioned / prev.total) * 100 : null
@@ -295,6 +298,8 @@ export async function getPMMTable(
       pmm_use_case,
       visibility_score: curScore,
       delta: prevScore !== null ? curScore - prevScore : null,
+      citation_share: total > 0 ? (cited / total) * 100 : null,
+      avg_position: positions.length > 0 ? positions.reduce((a, b) => a + b, 0) / positions.length : null,
       total_responses: total,
       timeseries,
     }
