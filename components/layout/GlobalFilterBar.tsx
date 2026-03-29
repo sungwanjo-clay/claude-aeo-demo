@@ -1,192 +1,177 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { AlertTriangle, X } from 'lucide-react'
+import { AlertTriangle, ChevronDown } from 'lucide-react'
 import { useGlobalFilters } from '@/context/GlobalFilters'
 import { supabase } from '@/lib/supabase/client'
-import { getDistinctTopics, getDistinctTags, getLastRunDate } from '@/lib/queries/visibility'
-import { cn } from '@/lib/utils/cn'
+import { getDistinctTags, getLastRunDate } from '@/lib/queries/visibility'
 import { formatDate } from '@/lib/utils/formatters'
 
-const PLATFORMS = ['ChatGPT', 'Claude']
-const BRANDED_OPTIONS = [
-  { value: 'all', label: 'All' },
-  { value: 'branded', label: 'Branded' },
-  { value: 'non-branded', label: 'Non-Branded' },
-]
-const DATE_PRESETS = [
-  { label: 'Last 7 Days', days: 7 },
-  { label: 'Last 30 Days', days: 30 },
-  { label: 'Last 90 Days', days: 90 },
-]
+const PLATFORMS = ['all', 'ChatGPT', 'Claude']
+const PLATFORM_LABELS: Record<string, string> = { all: 'All Platforms', ChatGPT: 'ChatGPT', Claude: 'Claude' }
 
-const pillActive: React.CSSProperties = {
-  background: 'var(--clay-black)',
-  color: '#FFFFFF',
-  border: '1px solid var(--clay-black)',
+function toInputDate(d: Date): string {
+  return d.toISOString().split('T')[0]
 }
-const pillInactive: React.CSSProperties = {
-  background: '#FFFFFF',
-  color: 'var(--clay-black)',
-  border: '1px solid var(--clay-border-dashed)',
+
+interface FilterSelectProps {
+  label: string
+  value: string
+  options: { value: string; label: string }[]
+  onChange: (v: string) => void
+}
+
+function FilterSelect({ label, value, options, onChange }: FilterSelectProps) {
+  return (
+    <div className="relative inline-flex items-center">
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="appearance-none pl-3 pr-7 py-1.5 text-[12px] font-semibold cursor-pointer focus:outline-none"
+        style={{
+          background: '#FFFFFF',
+          border: '1px solid var(--clay-border-dashed)',
+          borderRadius: '8px',
+          color: 'var(--clay-black)',
+          minWidth: '120px',
+        }}
+      >
+        {options.map(o => (
+          <option key={o.value} value={o.value}>{o.value === value ? `${label}: ${o.label}` : o.label}</option>
+        ))}
+      </select>
+      <ChevronDown size={12} className="absolute right-2 pointer-events-none" style={{ color: 'rgba(26,25,21,0.4)' }} />
+    </div>
+  )
 }
 
 export default function GlobalFilterBar() {
-  const { filters, setFilters, activeFilterCount, clearAll } = useGlobalFilters()
-  const [topics, setTopics] = useState<string[]>([])
+  const { filters, setFilters, clearAll } = useGlobalFilters()
   const [tags, setTags] = useState<string[]>([])
   const [lastRunDate, setLastRunDate] = useState<string | null>(null)
-  const [datePreset, setDatePreset] = useState<number>(7)
 
   useEffect(() => {
-    Promise.all([
-      getDistinctTopics(supabase),
-      getDistinctTags(supabase),
-      getLastRunDate(supabase),
-    ]).then(([t, tg, lr]) => {
-      setTopics(t)
+    Promise.all([getDistinctTags(supabase), getLastRunDate(supabase)]).then(([tg, lr]) => {
       setTags(tg)
       setLastRunDate(lr)
     })
   }, [])
 
-  const isStale = lastRunDate
-    ? Date.now() - new Date(lastRunDate).getTime() > 24 * 60 * 60 * 1000
-    : false
+  const isStale = lastRunDate ? Date.now() - new Date(lastRunDate).getTime() > 24 * 60 * 60 * 1000 : false
 
-  function applyDatePreset(days: number) {
-    const end = new Date()
-    const start = new Date()
-    start.setDate(start.getDate() - days)
-    setDatePreset(days)
-    setFilters({ dateRange: { start, end } })
-  }
+  const keywordOptions = [
+    { value: 'benchmark', label: 'Benchmark' },
+    { value: 'campaign', label: 'Campaign' },
+    { value: 'all', label: 'All' },
+  ]
 
-  function togglePlatform(p: string) {
-    const current = filters.platforms
-    const next = current.includes(p) ? current.filter(x => x !== p) : [...current, p]
-    setFilters({ platforms: next })
-  }
+  const tagOptions = [
+    { value: 'all', label: 'All Tags' },
+    ...tags.map(t => ({ value: t, label: t })),
+  ]
 
-  function toggleTopic(t: string) {
-    const current = filters.topics
-    const next = current.includes(t) ? current.filter(x => x !== t) : [...current, t]
-    setFilters({ topics: next })
-  }
-
-  const pillBase = 'px-3 py-1 text-[11px] font-semibold uppercase tracking-wider transition-all cursor-pointer'
-  const pillRadius = { borderRadius: '99rem' }
+  const platformOptions = PLATFORMS.map(p => ({ value: p, label: PLATFORM_LABELS[p] }))
 
   return (
     <div className="px-4 py-2" style={{ borderBottom: '1px solid var(--clay-border)', background: '#FFFFFF' }}>
       <div className="flex flex-wrap items-center gap-2">
-        {/* Prompt Type */}
-        <div className="flex items-center gap-1">
-          {['benchmark', 'all', ...tags].map(opt => (
-            <button
-              key={opt}
-              onClick={() => setFilters({ promptType: opt })}
-              className={pillBase}
-              style={{ ...(filters.promptType === opt ? pillActive : pillInactive), ...pillRadius }}
-            >
-              {opt === 'benchmark' ? 'Benchmark' : opt === 'all' ? 'All Prompts' : opt}
-            </button>
-          ))}
-        </div>
 
-        <div className="w-px h-4" style={{ background: 'var(--clay-border-dashed)' }} />
+        {/* Keyword Type */}
+        <FilterSelect
+          label="Keyword Type"
+          value={filters.promptType}
+          options={keywordOptions}
+          onChange={v => setFilters({ promptType: v as 'benchmark' | 'campaign' | 'all' })}
+        />
+
+        {/* Tags */}
+        {tags.length > 0 && (
+          <FilterSelect
+            label="Tags"
+            value={filters.tags}
+            options={tagOptions}
+            onChange={v => setFilters({ tags: v })}
+          />
+        )}
 
         {/* Date Range */}
         <div className="flex items-center gap-1">
-          {DATE_PRESETS.map(({ label, days }) => (
-            <button
-              key={days}
-              onClick={() => applyDatePreset(days)}
-              className={pillBase}
-              style={{ ...(datePreset === days ? pillActive : pillInactive), ...pillRadius }}
-            >
-              {label}
-            </button>
-          ))}
+          <span className="text-[11px] font-semibold" style={{ color: 'rgba(26,25,21,0.45)' }}>From</span>
+          <input
+            type="date"
+            value={toInputDate(filters.dateRange.start)}
+            onChange={e => {
+              const start = new Date(e.target.value + 'T00:00:00')
+              if (!isNaN(start.getTime())) setFilters({ dateRange: { start, end: filters.dateRange.end } })
+            }}
+            className="text-[12px] font-semibold px-2 py-1.5 focus:outline-none"
+            style={{ border: '1px solid var(--clay-border-dashed)', borderRadius: '8px', background: '#fff', color: 'var(--clay-black)' }}
+          />
+          <span className="text-[11px] font-semibold" style={{ color: 'rgba(26,25,21,0.45)' }}>to</span>
+          <input
+            type="date"
+            value={toInputDate(filters.dateRange.end)}
+            onChange={e => {
+              const end = new Date(e.target.value + 'T23:59:59')
+              if (!isNaN(end.getTime())) setFilters({ dateRange: { start: filters.dateRange.start, end } })
+            }}
+            className="text-[12px] font-semibold px-2 py-1.5 focus:outline-none"
+            style={{ border: '1px solid var(--clay-border-dashed)', borderRadius: '8px', background: '#fff', color: 'var(--clay-black)' }}
+          />
         </div>
-
-        <div className="w-px h-4" style={{ background: 'var(--clay-border-dashed)' }} />
 
         {/* Platform */}
-        <div className="flex items-center gap-1">
-          <span className="text-[10px] font-semibold uppercase tracking-wider mr-1" style={{ color: 'rgba(26,25,21,0.4)' }}>Platform:</span>
-          {PLATFORMS.map(p => (
-            <button
-              key={p}
-              onClick={() => togglePlatform(p)}
-              className={pillBase}
-              style={{ ...(filters.platforms.includes(p) ? pillActive : pillInactive), ...pillRadius }}
-            >
-              {p}
-            </button>
-          ))}
-        </div>
+        <FilterSelect
+          label="Platform"
+          value={filters.platform}
+          options={platformOptions}
+          onChange={v => setFilters({ platform: v })}
+        />
 
-        {/* Topics */}
-        {topics.length > 0 && (
-          <>
-            <div className="w-px h-4" style={{ background: 'var(--clay-border-dashed)' }} />
-            <div className="flex items-center gap-1 flex-wrap max-w-xs">
-              <span className="text-[10px] font-semibold uppercase tracking-wider mr-1" style={{ color: 'rgba(26,25,21,0.4)' }}>Topic:</span>
-              {topics.slice(0, 6).map(t => (
-                <button
-                  key={t}
-                  onClick={() => toggleTopic(t)}
-                  className={pillBase}
-                  style={{ ...(filters.topics.includes(t) ? pillActive : pillInactive), ...pillRadius }}
-                >
-                  {t}
-                </button>
-              ))}
-              {topics.length > 6 && (
-                <span className="text-[10px] font-bold" style={{ color: 'rgba(26,25,21,0.4)' }}>+{topics.length - 6} more</span>
-              )}
-            </div>
-          </>
-        )}
+        {/* Divider */}
+        <div className="w-px h-5 mx-1" style={{ background: 'var(--clay-border-dashed)' }} />
 
-        <div className="w-px h-4" style={{ background: 'var(--clay-border-dashed)' }} />
-
-        {/* Branded */}
-        <select
-          value={filters.brandedFilter}
-          onChange={e => setFilters({ brandedFilter: e.target.value as 'all' | 'branded' | 'non-branded' })}
-          className="text-[11px] font-semibold uppercase tracking-wider px-2 py-1 focus:outline-none cursor-pointer"
-          style={{
-            border: '1px solid var(--clay-border-dashed)',
-            borderRadius: '99rem',
-            background: '#FFFFFF',
-            color: 'var(--clay-black)',
-          }}
-        >
-          {BRANDED_OPTIONS.map(o => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
+        {/* Compare Toggle */}
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <span className="text-[12px] font-semibold" style={{ color: 'rgba(26,25,21,0.6)' }}>Compare period</span>
+          <div
+            onClick={() => setFilters({ compareEnabled: !filters.compareEnabled })}
+            className="relative"
+            style={{ width: '36px', height: '20px', borderRadius: '99px', background: filters.compareEnabled ? 'var(--clay-black)' : '#D1D5DB', transition: 'background 0.2s', cursor: 'pointer', flexShrink: 0 }}
+          >
+            <div style={{
+              position: 'absolute', top: '2px',
+              left: filters.compareEnabled ? '18px' : '2px',
+              width: '16px', height: '16px', borderRadius: '50%',
+              background: filters.compareEnabled ? 'var(--clay-lime)' : '#fff',
+              transition: 'left 0.2s',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+            }} />
+          </div>
+        </label>
 
         {/* Right side */}
         <div className="ml-auto flex items-center gap-3">
-          {activeFilterCount > 0 && (
-            <button
-              onClick={clearAll}
-              className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider transition-opacity hover:opacity-60"
-              style={{ color: 'var(--clay-black)' }}
-            >
-              <X size={11} />
-              {activeFilterCount} filter{activeFilterCount > 1 ? 's' : ''} active — clear all
-            </button>
-          )}
-          <div className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'rgba(26,25,21,0.4)' }}>
+          <button
+            onClick={clearAll}
+            className="text-[11px] font-semibold hover:opacity-60 transition-opacity"
+            style={{ color: 'rgba(26,25,21,0.45)' }}
+          >
+            Reset
+          </button>
+          <div className="flex items-center gap-1 text-[11px] font-semibold" style={{ color: 'rgba(26,25,21,0.4)' }}>
             {isStale && <AlertTriangle size={11} style={{ color: 'var(--clay-tangerine)' }} />}
             <span>Updated: {lastRunDate ? formatDate(lastRunDate) : '—'}</span>
           </div>
         </div>
       </div>
+
+      {/* Compare period label */}
+      {filters.compareEnabled && (
+        <div className="mt-1.5 text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'rgba(26,25,21,0.4)' }}>
+          Comparing {toInputDate(filters.comparisonRange.start)} → {toInputDate(filters.comparisonRange.end)}
+        </div>
+      )}
     </div>
   )
 }

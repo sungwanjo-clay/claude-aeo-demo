@@ -47,8 +47,12 @@ export async function getPromptsWithResponses(
 
   if (f.platforms.length > 0) rQuery = rQuery.in('platform', f.platforms)
   if (f.topics.length > 0) rQuery = rQuery.in('topic', f.topics)
-  if (f.promptType === 'benchmark') rQuery = rQuery.eq('prompt_type', 'benchmark')
-  else if (f.promptType !== 'all') rQuery = rQuery.eq('tags', f.promptType)
+  if (f.promptType === 'benchmark') {
+    rQuery = rQuery.eq('prompt_type', 'benchmark')
+  } else if (f.promptType === 'campaign') {
+    rQuery = rQuery.not('prompt_type', 'is', null).neq('prompt_type', 'benchmark')
+  }
+  if (f.tags && f.tags !== 'all') rQuery = rQuery.eq('tags', f.tags)
   if (f.brandedFilter !== 'all') {
     const val = f.brandedFilter === 'branded' ? 'Branded' : 'Non-Branded'
     rQuery = rQuery.eq('branded_or_non_branded', val)

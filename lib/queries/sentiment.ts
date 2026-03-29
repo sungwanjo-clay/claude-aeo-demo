@@ -5,14 +5,18 @@ import type { FilterParams, ThemeRow, TimeseriesRow } from './types'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function applyFilters(query: any, f: FilterParams): any {
   query = query.gte('run_date', f.startDate).lte('run_date', f.endDate)
-  if (f.platforms.length > 0) query = query.in('platform', f.platforms)
-  if (f.topics.length > 0) query = query.in('topic', f.topics)
+  if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
+  if (f.topics && f.topics.length > 0) query = query.in('topic', f.topics)
   if (f.brandedFilter !== 'all') {
     const val = f.brandedFilter === 'branded' ? 'Branded' : 'Non-Branded'
     query = query.eq('branded_or_non_branded', val)
   }
-  if (f.promptType === 'benchmark') query = query.eq('prompt_type', 'benchmark')
-  else if (f.promptType !== 'all') query = query.eq('tags', f.promptType)
+  if (f.promptType === 'benchmark') {
+    query = query.eq('prompt_type', 'benchmark')
+  } else if (f.promptType === 'campaign') {
+    query = query.not('prompt_type', 'is', null).neq('prompt_type', 'benchmark')
+  }
+  if (f.tags && f.tags !== 'all') query = query.eq('tags', f.tags)
   return query
 }
 

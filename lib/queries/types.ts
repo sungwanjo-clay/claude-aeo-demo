@@ -1,10 +1,11 @@
 export interface FilterParams {
-  promptType: string // 'benchmark' | 'all' | tag value
+  promptType: string // 'benchmark' | 'campaign' | 'all'
+  tags: string       // specific tag or 'all'
   startDate: string  // ISO string
   endDate: string
   prevStartDate: string
   prevEndDate: string
-  platforms: string[]
+  platforms: string[]  // [] means all platforms
   topics: string[]
   brandedFilter: string // 'all' | 'branded' | 'non-branded'
 }
@@ -26,6 +27,7 @@ export interface TimeseriesRow {
   value: number
   platform?: string
   topic?: string
+  pmm_use_case?: string
 }
 
 export interface CompetitorRow {
@@ -34,7 +36,7 @@ export interface CompetitorRow {
   sov_pct: number
   visibility_score?: number
   avg_position?: number
-  delta?: number
+  delta?: number | null
 }
 
 export interface CitationDomainRow {

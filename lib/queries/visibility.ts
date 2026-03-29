@@ -2,19 +2,21 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import type { FilterParams, TimeseriesRow, CompetitorRow } from './types'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function applyFilters(query: any, f: FilterParams): any {
   query = query.gte('run_date', f.startDate).lte('run_date', f.endDate)
-  if (f.platforms.length > 0) query = query.in('platform', f.platforms)
-  if (f.topics.length > 0) query = query.in('topic', f.topics)
+  if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
+  if (f.topics && f.topics.length > 0) query = query.in('topic', f.topics)
   if (f.brandedFilter !== 'all') {
     const val = f.brandedFilter === 'branded' ? 'Branded' : 'Non-Branded'
     query = query.eq('branded_or_non_branded', val)
   }
   if (f.promptType === 'benchmark') {
     query = query.eq('prompt_type', 'benchmark')
-  } else if (f.promptType !== 'all') {
-    query = query.eq('tags', f.promptType)
+  } else if (f.promptType === 'campaign') {
+    query = query.not('prompt_type', 'is', null).neq('prompt_type', 'benchmark')
+  }
+  if (f.tags && f.tags !== 'all') {
+    query = query.eq('tags', f.tags)
   }
   return query
 }
@@ -43,15 +45,14 @@ export async function getVisibilityTimeseries(
   f: FilterParams
 ): Promise<TimeseriesRow[]> {
   const { data } = await applyFilters(
-    sb.from('responses').select('run_date, platform, clay_mentioned'),
+    sb.from('responses').select('run_date, platform, clay_mentioned, run_day'),
     f
   )
   if (!data) return []
 
-  // Group by date + platform
   const map = new Map<string, { total: number; mentioned: number }>()
   for (const row of data) {
-    const date = row.run_date?.split('T')[0] ?? ''
+    const date = row.run_day ?? row.run_date?.split('T')[0] ?? ''
     const key = `${date}|||${row.platform}`
     const cur = map.get(key) ?? { total: 0, mentioned: 0 }
     cur.total++
@@ -65,19 +66,188 @@ export async function getVisibilityTimeseries(
   }).sort((a, b) => a.date.localeCompare(b.date))
 }
 
-export async function getVisibilityByTopic(
+export async function getCompetitorVisibilityTimeseries(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<{ date: string; competitor: string; value: number }[]> {
+  // Get total responses per day for denominator
+  const { data: responses } = await applyFilters(
+    sb.from('responses').select('id, run_day, run_date'),
+    f
+  )
+  if (!responses?.length) return []
+
+  const totalByDate = new Map<string, number>()
+  for (const r of responses) {
+    const date = r.run_day ?? r.run_date?.split('T')[0] ?? ''
+    totalByDate.set(date, (totalByDate.get(date) ?? 0) + 1)
+  }
+  const responseIds = responses.map(r => r.id)
+
+  // Get competitor mentions for these responses
+  const { data: rc } = await sb
+    .from('response_competitors')
+    .select('response_id, competitor_name, run_date')
+    .in('response_id', responseIds.slice(0, 1000)) // Supabase limit safety
+
+  if (!rc?.length) return []
+
+  // Build a map of response_id -> date
+  const responseIdToDate = new Map<string, string>()
+  for (const r of responses) {
+    responseIdToDate.set(r.id, r.run_day ?? r.run_date?.split('T')[0] ?? '')
+  }
+
+  const map = new Map<string, number>()
+  for (const row of rc) {
+    const date = responseIdToDate.get(row.response_id) ?? row.run_date?.split('T')[0] ?? ''
+    if (!date) continue
+    const key = `${date}|||${row.competitor_name}`
+    map.set(key, (map.get(key) ?? 0) + 1)
+  }
+
+  return Array.from(map.entries()).map(([key, count]) => {
+    const [date, competitor] = key.split('|||')
+    const total = totalByDate.get(date) ?? 0
+    return { date, competitor, value: total > 0 ? (count / total) * 100 : 0 }
+  }).sort((a, b) => a.date.localeCompare(b.date))
+}
+
+export async function getCompetitorLeaderboard(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<CompetitorRow[]> {
+  const [rcCur, rcPrev, totalCur, totalPrev] = await Promise.all([
+    sb.from('response_competitors')
+      .select('competitor_name, response_id')
+      .gte('run_date', f.startDate).lte('run_date', f.endDate),
+    sb.from('response_competitors')
+      .select('competitor_name, response_id')
+      .gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate),
+    applyFilters(sb.from('responses').select('id'), f).then((r: any) => r.data ?? []),
+    applyFilters(sb.from('responses').select('id'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }).then((r: any) => r.data ?? []),
+  ])
+
+  const totalNow = totalCur.length
+  const totalPrevCount = totalPrev.length
+
+  const curCounts = new Map<string, Set<string>>()
+  for (const r of rcCur.data ?? []) {
+    if (!curCounts.has(r.competitor_name)) curCounts.set(r.competitor_name, new Set())
+    curCounts.get(r.competitor_name)!.add(r.response_id)
+  }
+
+  const prevCounts = new Map<string, Set<string>>()
+  for (const r of rcPrev.data ?? []) {
+    if (!prevCounts.has(r.competitor_name)) prevCounts.set(r.competitor_name, new Set())
+    prevCounts.get(r.competitor_name)!.add(r.response_id)
+  }
+
+  return Array.from(curCounts.entries()).map(([competitor_name, ids]) => {
+    const curScore = totalNow > 0 ? (ids.size / totalNow) * 100 : 0
+    const prevIds = prevCounts.get(competitor_name)?.size ?? 0
+    const prevScore = totalPrevCount > 0 ? (prevIds / totalPrevCount) * 100 : 0
+    return {
+      competitor_name,
+      mention_count: ids.size,
+      sov_pct: curScore,
+      visibility_score: curScore,
+      delta: prevScore > 0 ? curScore - prevScore : null,
+    }
+  }).sort((a, b) => b.visibility_score - a.visibility_score)
+}
+
+export async function getVisibilityByPMM(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<TimeseriesRow[]> {
   const { data } = await applyFilters(
-    sb.from('responses').select('run_date, topic, clay_mentioned'),
+    sb.from('responses').select('run_date, run_day, pmm_use_case, clay_mentioned'),
     f
   )
   if (!data) return []
 
   const map = new Map<string, { total: number; mentioned: number }>()
   for (const row of data) {
-    const date = row.run_date?.split('T')[0] ?? ''
+    if (!row.pmm_use_case) continue
+    const date = row.run_day ?? row.run_date?.split('T')[0] ?? ''
+    const key = `${date}|||${row.pmm_use_case}`
+    const cur = map.get(key) ?? { total: 0, mentioned: 0 }
+    cur.total++
+    if (row.clay_mentioned === 'Yes') cur.mentioned++
+    map.set(key, cur)
+  }
+
+  return Array.from(map.entries()).map(([key, { total, mentioned }]) => {
+    const [date, pmm_use_case] = key.split('|||')
+    return { date, pmm_use_case, value: total > 0 ? (mentioned / total) * 100 : 0 }
+  }).sort((a, b) => a.date.localeCompare(b.date))
+}
+
+export async function getPMMTable(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<{ pmm_use_case: string; visibility_score: number; delta: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]> {
+  const [cur, prev] = await Promise.all([
+    applyFilters(sb.from('responses').select('run_date, run_day, pmm_use_case, clay_mentioned'), f).then((r: any) => r.data ?? []),
+    applyFilters(sb.from('responses').select('pmm_use_case, clay_mentioned'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }).then((r: any) => r.data ?? []),
+  ])
+
+  // Current period aggregation
+  const curMap = new Map<string, { mentioned: number; total: number; byDate: Map<string, { m: number; t: number }> }>()
+  for (const row of cur) {
+    if (!row.pmm_use_case) continue
+    const date = row.run_day ?? row.run_date?.split('T')[0] ?? ''
+    if (!curMap.has(row.pmm_use_case)) curMap.set(row.pmm_use_case, { mentioned: 0, total: 0, byDate: new Map() })
+    const entry = curMap.get(row.pmm_use_case)!
+    entry.total++
+    if (row.clay_mentioned === 'Yes') entry.mentioned++
+    const d = entry.byDate.get(date) ?? { m: 0, t: 0 }
+    d.t++
+    if (row.clay_mentioned === 'Yes') d.m++
+    entry.byDate.set(date, d)
+  }
+
+  // Previous period aggregation
+  const prevMap = new Map<string, { mentioned: number; total: number }>()
+  for (const row of prev) {
+    if (!row.pmm_use_case) continue
+    const entry = prevMap.get(row.pmm_use_case) ?? { mentioned: 0, total: 0 }
+    entry.total++
+    if (row.clay_mentioned === 'Yes') entry.mentioned++
+    prevMap.set(row.pmm_use_case, entry)
+  }
+
+  return Array.from(curMap.entries()).map(([pmm_use_case, { mentioned, total, byDate }]) => {
+    const curScore = total > 0 ? (mentioned / total) * 100 : 0
+    const prev = prevMap.get(pmm_use_case)
+    const prevScore = prev && prev.total > 0 ? (prev.mentioned / prev.total) * 100 : null
+    const timeseries = Array.from(byDate.entries())
+      .map(([date, { m, t }]) => ({ date, value: t > 0 ? (m / t) * 100 : 0 }))
+      .sort((a, b) => a.date.localeCompare(b.date))
+    return {
+      pmm_use_case,
+      visibility_score: curScore,
+      delta: prevScore !== null ? curScore - prevScore : null,
+      total_responses: total,
+      timeseries,
+    }
+  }).sort((a, b) => b.visibility_score - a.visibility_score)
+}
+
+export async function getVisibilityByTopic(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<TimeseriesRow[]> {
+  const { data } = await applyFilters(
+    sb.from('responses').select('run_date, run_day, topic, clay_mentioned'),
+    f
+  )
+  if (!data) return []
+
+  const map = new Map<string, { total: number; mentioned: number }>()
+  for (const row of data) {
+    const date = row.run_day ?? row.run_date?.split('T')[0] ?? ''
     const key = `${date}|||${row.topic ?? 'Unknown'}`
     const cur = map.get(key) ?? { total: 0, mentioned: 0 }
     cur.total++
@@ -101,7 +271,7 @@ export async function getShareOfVoice(
     .gte('run_date', f.startDate)
     .lte('run_date', f.endDate)
 
-  if (f.platforms.length > 0) query = query.in('platform', f.platforms)
+  if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
 
   const { data } = await query
   if (!data || !data.length) return []
@@ -127,7 +297,6 @@ export async function getMentionShare(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<number | null> {
-  // Clay's mentions / total competitor mentions in same responses
   const sov = await getShareOfVoice(sb, f)
   const clay = sov.find(r => r.competitor_name.toLowerCase() === 'clay')
   return clay?.sov_pct ?? null
@@ -146,10 +315,11 @@ export async function getAvgPosition(
       .eq('clay_mentioned', 'Yes')
       .not('clay_mention_position', 'is', null)
 
-    if (f.platforms.length > 0) q = q.in('platform', f.platforms)
-    if (f.topics.length > 0) q = q.in('topic', f.topics)
+    if (f.platforms && f.platforms.length > 0) q = q.in('platform', f.platforms)
+    if (f.topics && f.topics.length > 0) q = q.in('topic', f.topics)
     if (f.promptType === 'benchmark') q = q.eq('prompt_type', 'benchmark')
-    else if (f.promptType !== 'all') q = q.eq('tags', f.promptType)
+    else if (f.promptType === 'campaign') q = q.not('prompt_type', 'is', null).neq('prompt_type', 'benchmark')
+    if (f.tags && f.tags !== 'all') q = q.eq('tags', f.tags)
 
     const { data } = await q
     if (!data?.length) return null

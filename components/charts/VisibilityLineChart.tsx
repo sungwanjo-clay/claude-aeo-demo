@@ -9,17 +9,17 @@ import { formatShortDate } from '@/lib/utils/formatters'
 
 interface VisibilityLineChartProps {
   data: TimeseriesRow[]
-  groupKey?: 'platform' | 'topic'
+  groupKey?: 'platform' | 'topic' | 'pmm_use_case'
   height?: number
   yLabel?: string
+  compareData?: TimeseriesRow[]  // optional prior period data (rendered dashed)
 }
 
-function pivot(data: TimeseriesRow[], groupKey: 'platform' | 'topic') {
+function pivot(data: TimeseriesRow[], groupKey: string) {
   const map = new Map<string, Record<string, number>>()
   const keys = new Set<string>()
 
   for (const row of data) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const group = (row as any)[groupKey] as string | undefined ?? 'Unknown'
     const entry = map.get(row.date) ?? {}
     entry[group] = row.value
@@ -35,9 +35,7 @@ function pivot(data: TimeseriesRow[], groupKey: 'platform' | 'topic') {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const fmtVal = ((val: any, name: string) => [`${Number(val).toFixed(1)}%`, name]) as any
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const fmtLabel = (label: any) => formatShortDate(String(label))
 
 export default function VisibilityLineChart({
@@ -45,33 +43,61 @@ export default function VisibilityLineChart({
   groupKey = 'platform',
   height = 280,
   yLabel,
+  compareData,
 }: VisibilityLineChartProps) {
   const { chartData, keys } = pivot(data, groupKey)
 
+  // Merge compare data as separate keys with _prev suffix
+  let mergedData = chartData
+  const compareKeys: string[] = []
+  if (compareData && compareData.length > 0) {
+    const { chartData: prevChart, keys: prevKeys } = pivot(compareData, groupKey)
+    compareKeys.push(...prevKeys.map(k => `${k}_prev`))
+    // Align compare data by index position (day offset), not actual date
+    const merged = chartData.map((row, i) => {
+      const prevRow = prevChart[i]
+      const extra: Record<string, number> = {}
+      if (prevRow) {
+        for (const k of prevKeys) {
+          const prevVal = (prevRow as Record<string, unknown>)[k]
+          if (prevVal !== undefined) extra[`${k}_prev`] = prevVal as number
+        }
+      }
+      return { ...row, ...extra }
+    })
+    mergedData = merged
+  }
+
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <LineChart data={chartData} margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+      <LineChart data={mergedData} margin={{ top: 8, right: 16, bottom: 4, left: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="rgba(26,25,21,0.06)" />
         <XAxis
           dataKey="date"
           tickFormatter={formatShortDate}
-          tick={{ fontSize: 11 }}
+          tick={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans', fill: 'rgba(26,25,21,0.5)' }}
           tickLine={false}
           axisLine={false}
         />
         <YAxis
-          tickFormatter={v => `${v.toFixed(0)}%`}
-          tick={{ fontSize: 11 }}
+          tickFormatter={v => `${Number(v).toFixed(0)}%`}
+          tick={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans', fill: 'rgba(26,25,21,0.5)' }}
           tickLine={false}
           axisLine={false}
+          domain={[0, 100]}
           label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', fontSize: 11 } : undefined}
         />
         <Tooltip
           formatter={fmtVal}
           labelFormatter={fmtLabel}
-          contentStyle={{ fontSize: 12 }}
+          contentStyle={{ fontSize: 12, fontFamily: 'Plus Jakarta Sans', border: '1px solid var(--clay-border-dashed)', borderRadius: '8px' }}
         />
-        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
+        <Legend
+          iconType="circle"
+          iconSize={8}
+          wrapperStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans' }}
+          formatter={(value) => value.replace('_prev', ' (prev)')}
+        />
         {keys.map((k, i) => (
           <Line
             key={k}
@@ -83,10 +109,28 @@ export default function VisibilityLineChart({
                 : CHART_COLORS[i % CHART_COLORS.length]
             }
             strokeWidth={2}
-            dot={false}
-            activeDot={{ r: 4 }}
+            dot={{ r: 3, strokeWidth: 0 }}
+            activeDot={{ r: 5 }}
           />
         ))}
+        {compareKeys.map((k, i) => {
+          const baseKey = k.replace('_prev', '')
+          const color = groupKey === 'platform'
+            ? (PLATFORM_COLORS[baseKey] ?? CHART_COLORS[i % CHART_COLORS.length])
+            : CHART_COLORS[i % CHART_COLORS.length]
+          return (
+            <Line
+              key={k}
+              type="monotone"
+              dataKey={k}
+              stroke={color}
+              strokeWidth={1.5}
+              strokeDasharray="4 4"
+              dot={false}
+              activeDot={{ r: 3 }}
+            />
+          )
+        })}
       </LineChart>
     </ResponsiveContainer>
   )
