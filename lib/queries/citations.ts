@@ -175,6 +175,30 @@ export async function getCitationTypeBreakdown(
   })).sort((a, b) => b.count - a.count)
 }
 
+export async function getCitationCount(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<{ current: number; previous: number }> {
+  const count = async (start: string, end: string) => {
+    const { data } = await applyResponseFilters(
+      sb.from('responses').select('cited_domains'),
+      { ...f, startDate: start, endDate: end }
+    )
+    if (!data?.length) return 0
+    return data.filter(r => {
+      try {
+        const domains = Array.isArray(r.cited_domains) ? r.cited_domains : JSON.parse(r.cited_domains ?? '[]')
+        return domains.some((d: string) => typeof d === 'string' && d.includes('clay.com'))
+      } catch { return false }
+    }).length
+  }
+  const [current, previous] = await Promise.all([
+    count(f.startDate, f.endDate),
+    count(f.prevStartDate, f.prevEndDate),
+  ])
+  return { current, previous }
+}
+
 export async function getCitationOverallTimeseries(
   sb: SupabaseClient,
   f: FilterParams

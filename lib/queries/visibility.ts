@@ -416,28 +416,72 @@ export async function getDistinctTags(sb: SupabaseClient, startDate?: string, en
   return [...new Set(data.map(r => (r.tags ?? '').trim()).filter(Boolean))].sort() as string[]
 }
 
+export async function getClaygentCount(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<{ current: number; previous: number }> {
+  const count = async (start: string, end: string) => {
+    const { data } = await applyFilters(
+      sb.from('responses').select('claygent_or_mcp_mentioned'),
+      { ...f, startDate: start, endDate: end }
+    )
+    return (data ?? []).filter((r: any) => r.claygent_or_mcp_mentioned === 'Yes').length
+  }
+  const [current, previous] = await Promise.all([
+    count(f.startDate, f.endDate),
+    count(f.prevStartDate, f.prevEndDate),
+  ])
+  return { current, previous }
+}
+
 export async function getClaygentTimeseries(
   sb: SupabaseClient,
   f: FilterParams
-): Promise<{ date: string; value: number }[]> {
+): Promise<{ date: string; count: number }[]> {
   const { data } = await applyFilters(
     sb.from('responses').select('run_date, claygent_or_mcp_mentioned'),
     f
   )
   if (!data) return []
 
-  const map = new Map<string, { mentioned: number; total: number }>()
+  const map = new Map<string, number>()
   for (const row of data) {
     const date = (row.run_date ?? '').substring(0, 10)
     if (!date) continue
-    const cur = map.get(date) ?? { mentioned: 0, total: 0 }
-    cur.total++
-    if (row.claygent_or_mcp_mentioned === 'Yes') cur.mentioned++
-    map.set(date, cur)
+    if (row.claygent_or_mcp_mentioned === 'Yes') {
+      map.set(date, (map.get(date) ?? 0) + 1)
+    }
   }
 
-  return Array.from(map.entries())
-    .map(([date, { mentioned, total }]) => ({ date, value: total > 0 ? (mentioned / total) * 100 : 0 }))
+  // Ensure dates with zero mentions still appear
+  const allDates = [...new Set(data.map(r => (r.run_date ?? '').substring(0, 10)).filter(Boolean))]
+  return allDates
+    .map(date => ({ date, count: map.get(date) ?? 0 }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+}
+
+export async function getFollowupTimeseries(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<{ date: string; count: number }[]> {
+  const { data } = await applyFilters(
+    sb.from('responses').select('run_date, clay_recommended_followup'),
+    f
+  )
+  if (!data) return []
+
+  const map = new Map<string, number>()
+  for (const row of data) {
+    const date = (row.run_date ?? '').substring(0, 10)
+    if (!date) continue
+    if (row.clay_recommended_followup === 'Yes') {
+      map.set(date, (map.get(date) ?? 0) + 1)
+    }
+  }
+
+  const allDates = [...new Set(data.map(r => (r.run_date ?? '').substring(0, 10)).filter(Boolean))]
+  return allDates
+    .map(date => ({ date, count: map.get(date) ?? 0 }))
     .sort((a, b) => a.date.localeCompare(b.date))
 }
 

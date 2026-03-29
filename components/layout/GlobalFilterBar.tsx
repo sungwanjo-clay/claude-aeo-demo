@@ -82,8 +82,8 @@ export default function GlobalFilterBar() {
   const platformOptions = PLATFORMS.map(p => ({ value: p, label: PLATFORM_LABELS[p] }))
 
   return (
-    <div className="px-4 py-2" style={{ borderBottom: '1px solid var(--clay-border)', background: '#FFFFFF' }}>
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="px-3 py-2 overflow-x-auto" style={{ borderBottom: '1px solid var(--clay-border)', background: '#FFFFFF' }}>
+      <div className="flex items-center gap-2 min-w-max">
 
         {/* Keyword Type */}
         <FilterSelect

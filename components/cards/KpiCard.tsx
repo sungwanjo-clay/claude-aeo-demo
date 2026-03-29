@@ -9,6 +9,7 @@ interface KpiCardProps {
   deltaLabel?: string
   className?: string
   invertDelta?: boolean
+  deltaIsCount?: boolean  // show delta as integer count, not %
 }
 
 export default function KpiCard({
@@ -18,6 +19,7 @@ export default function KpiCard({
   deltaLabel = 'vs prev period',
   className,
   invertDelta = false,
+  deltaIsCount = false,
 }: KpiCardProps) {
   const tooltip = TOOLTIP_DEFINITIONS[label]
   const isUp = delta != null ? delta > 0 : null
@@ -54,7 +56,7 @@ export default function KpiCard({
             {isUp === true && <TrendingUp size={11} />}
             {isUp === false && <TrendingDown size={11} />}
             {isUp === null && <Minus size={11} />}
-            {isUp === true ? '+' : ''}{delta.toFixed(1)}%
+            {isUp === true ? '+' : ''}{deltaIsCount ? Math.round(delta).toLocaleString() : `${delta.toFixed(1)}%`}
           </span>
           <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'rgba(26,25,21,0.35)' }}>{deltaLabel}</span>
         </div>

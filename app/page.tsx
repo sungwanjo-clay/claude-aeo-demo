@@ -4,9 +4,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { useGlobalFilters } from '@/context/GlobalFilters'
 import { supabase } from '@/lib/supabase/client'
 import { getLatestInsight, getActiveAnomalies } from '@/lib/queries/home'
-import { getVisibilityScore, getDataFreshnessStats, getClayOverallTimeseries, getCompetitorLeaderboard, getVisibilityByPMM, getPMMTable, getClaygentTimeseries, getPMMPromptDrilldown } from '@/lib/queries/visibility'
+import { getVisibilityScore, getDataFreshnessStats, getClayOverallTimeseries, getCompetitorLeaderboard, getVisibilityByPMM, getPMMTable, getClaygentTimeseries, getClaygentCount, getFollowupTimeseries, getPMMPromptDrilldown } from '@/lib/queries/visibility'
 import { getSentimentBreakdown } from '@/lib/queries/sentiment'
-import { getCitationShare, getCitationOverallTimeseries, getTopCitedDomainsWithURLs } from '@/lib/queries/citations'
+import { getCitationCount, getCitationOverallTimeseries, getTopCitedDomainsWithURLs } from '@/lib/queries/citations'
 import { getAvgPosition } from '@/lib/queries/visibility'
 import type { InsightRow, AnomalyRow, CompetitorRow } from '@/lib/queries/types'
 import InsightCard from '@/components/cards/InsightCard'
@@ -29,7 +29,8 @@ export default function HomePage() {
   const [anomalies, setAnomalies] = useState<AnomalyRow[]>([])
   const [visibility, setVisibility] = useState<{ current: number | null; previous: number | null; total: number } | null>(null)
   const [sentiment, setSentiment] = useState<{ positive: number | null } | null>(null)
-  const [citationShare, setCitationShare] = useState<{ current: number | null; previous: number | null } | null>(null)
+  const [citationCount, setCitationCount] = useState<{ current: number; previous: number } | null>(null)
+  const [claygentCount, setClaygentCount] = useState<{ current: number; previous: number } | null>(null)
   const [avgPos, setAvgPos] = useState<{ current: number | null; previous: number | null } | null>(null)
   const [competitors, setCompetitors] = useState<CompetitorRow[]>([])
   const [sparkData, setSparkData] = useState<{ date: string; value: number }[]>([])
@@ -40,7 +41,8 @@ export default function HomePage() {
   const [citedDomains, setCitedDomains] = useState<{ domain: string; citation_count: number; share_pct: number; is_clay: boolean; top_urls: { url: string; title: string | null; count: number }[] }[]>([])
   const [pmmSeries, setPmmSeries] = useState<{ date: string; value: number; pmm_use_case?: string }[]>([])
   const [pmmTable, setPmmTable] = useState<{ pmm_use_case: string; visibility_score: number; delta: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]>([])
-  const [claygentTimeseries, setClaygentTimeseries] = useState<{ date: string; value: number }[]>([])
+  const [claygentTimeseries, setClaygentTimeseries] = useState<{ date: string; count: number }[]>([])
+  const [followupTimeseries, setFollowupTimeseries] = useState<{ date: string; count: number }[]>([])
 
   useEffect(() => {
     setLoading(true)
@@ -49,17 +51,19 @@ export default function HomePage() {
       getActiveAnomalies(supabase),
       getVisibilityScore(supabase, f),
       getSentimentBreakdown(supabase, f),
-      getCitationShare(supabase, f),
+      getCitationCount(supabase, f),
+      getClaygentCount(supabase, f),
       getAvgPosition(supabase, f),
       getCompetitorLeaderboard(supabase, f),
       getClayOverallTimeseries(supabase, f),
       getDataFreshnessStats(supabase),
-    ]).then(([ins, ano, vis, sent, cit, pos, comp, spark, fresh]) => {
+    ]).then(([ins, ano, vis, sent, citCnt, claygentCnt, pos, comp, spark, fresh]) => {
       setInsight(ins)
       setAnomalies(ano)
       setVisibility(vis)
       setSentiment({ positive: sent.positive })
-      setCitationShare(cit)
+      setCitationCount(citCnt)
+      setClaygentCount(claygentCnt)
       setAvgPos(pos)
       setCompetitors((comp as CompetitorRow[]).slice(0, 6))
       setFreshness(fresh)
@@ -78,12 +82,14 @@ export default function HomePage() {
       getVisibilityByPMM(supabase, f),
       getPMMTable(supabase, f),
       getClaygentTimeseries(supabase, f),
-    ]).then(([citTs, citDom, pmmTs, pmmTbl, claygentTs]) => {
+      getFollowupTimeseries(supabase, f),
+    ]).then(([citTs, citDom, pmmTs, pmmTbl, claygentTs, followupTs]) => {
       setCitationTimeseries(citTs)
       setCitedDomains(citDom)
       setPmmSeries(pmmTs)
       setPmmTable(pmmTbl)
       setClaygentTimeseries(claygentTs)
+      setFollowupTimeseries(followupTs)
       setLoadingExtra(false)
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -98,17 +104,13 @@ export default function HomePage() {
     if (!visibility?.current || !visibility?.previous) return null
     return visibility.current - visibility.previous
   }
-  function citDelta() {
-    if (!citationShare?.current || !citationShare?.previous) return null
-    return citationShare.current - citationShare.previous
-  }
   function posDelta() {
     if (!avgPos?.current || !avgPos?.previous) return null
     return avgPos.current - avgPos.previous
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
+    <div className="p-3 md:p-6 space-y-4 md:space-y-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold" style={{ color: 'var(--clay-black)', letterSpacing: '-0.03em' }}>Good morning</h1>
@@ -132,20 +134,29 @@ export default function HomePage() {
       <div>
         <h2 className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'rgba(26,25,21,0.45)' }}>Key Metrics</h2>
         {loading ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-            {Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} />)}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             <KpiCard
               label="Visibility Score"
               value={visibility?.current != null ? `${visibility.current.toFixed(1)}%` : '—'}
               delta={visDelta()}
             />
             <KpiCard
-              label="Citation Share"
-              value={citationShare?.current != null ? `${citationShare.current.toFixed(1)}%` : '—'}
-              delta={citDelta()}
+              label="Citation Count"
+              value={citationCount?.current != null ? citationCount.current.toLocaleString() : '—'}
+              delta={citationCount?.current != null && citationCount?.previous != null ? citationCount.current - citationCount.previous : null}
+              deltaLabel="vs prev period"
+              deltaIsCount
+            />
+            <KpiCard
+              label="ClayMCP & Agent"
+              value={claygentCount?.current != null ? claygentCount.current.toLocaleString() : '—'}
+              delta={claygentCount?.current != null && claygentCount?.previous != null ? claygentCount.current - claygentCount.previous : null}
+              deltaLabel="mentions"
+              deltaIsCount
             />
             <KpiCard
               label="Avg Position"
@@ -154,7 +165,7 @@ export default function HomePage() {
               invertDelta
             />
             <KpiCard
-              label="Positive Sentiment %"
+              label="Positive Sentiment"
               value={sentiment?.positive != null ? `${sentiment.positive.toFixed(1)}%` : '—'}
               delta={null}
               deltaLabel="of Clay mentions"
@@ -255,7 +266,7 @@ export default function HomePage() {
       {/* ClayMCP & Agent */}
       <div>
         <h2 className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'rgba(26,25,21,0.45)' }}>ClayMCP & Agent</h2>
-        {loadingExtra ? <SkeletonChart /> : <ClaygentSection timeseries={claygentTimeseries} />}
+        {loadingExtra ? <SkeletonChart /> : <ClaygentSection claygentData={claygentTimeseries} followupData={followupTimeseries} />}
       </div>
 
       {/* Data freshness */}
