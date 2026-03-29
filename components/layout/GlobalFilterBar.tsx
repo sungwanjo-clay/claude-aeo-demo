@@ -51,9 +51,12 @@ export default function GlobalFilterBar() {
   const [promptTypes, setPromptTypes] = useState<string[]>([])
   const [lastRunDate, setLastRunDate] = useState<string | null>(null)
 
+  const startISO = filters.dateRange.start.toISOString()
+  const endISO = filters.dateRange.end.toISOString()
+
   useEffect(() => {
     Promise.all([
-      getDistinctTags(supabase),
+      getDistinctTags(supabase, startISO, endISO),
       getDistinctPromptTypes(supabase),
       getLastRunDate(supabase),
     ]).then(([tg, pt, lr]) => {
@@ -61,7 +64,8 @@ export default function GlobalFilterBar() {
       setPromptTypes(pt)
       setLastRunDate(lr)
     })
-  }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startISO, endISO])
 
   const isStale = lastRunDate ? Date.now() - new Date(lastRunDate).getTime() > 24 * 60 * 60 * 1000 : false
 

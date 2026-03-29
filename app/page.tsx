@@ -3,19 +3,19 @@
 import { useEffect, useState } from 'react'
 import { useGlobalFilters } from '@/context/GlobalFilters'
 import { supabase } from '@/lib/supabase/client'
-import { getLatestInsight, getActiveAnomalies, getTopCompetitorThisWeek } from '@/lib/queries/home'
-import { getVisibilityScore, getDataFreshnessStats, getClayOverallTimeseries } from '@/lib/queries/visibility'
+import { getLatestInsight, getActiveAnomalies } from '@/lib/queries/home'
+import { getVisibilityScore, getDataFreshnessStats, getClayOverallTimeseries, getCompetitorLeaderboard } from '@/lib/queries/visibility'
 import { getSentimentBreakdown } from '@/lib/queries/sentiment'
 import { getCitationShare } from '@/lib/queries/citations'
 import { getAvgPosition } from '@/lib/queries/visibility'
-import type { InsightRow, AnomalyRow } from '@/lib/queries/types'
+import type { InsightRow, AnomalyRow, CompetitorRow } from '@/lib/queries/types'
 import InsightCard from '@/components/cards/InsightCard'
 import AnomalyAlert from '@/components/cards/AnomalyAlert'
 import KpiCard from '@/components/cards/KpiCard'
 import { SkeletonCard, SkeletonChart } from '@/components/shared/Skeleton'
-import { formatDate } from '@/lib/utils/formatters'
+import { formatDate, formatShortDate } from '@/lib/utils/formatters'
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { LineChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts'
-import { formatShortDate } from '@/lib/utils/formatters'
 
 export default function HomePage() {
   const { toQueryParams } = useGlobalFilters()
@@ -28,7 +28,7 @@ export default function HomePage() {
   const [sentiment, setSentiment] = useState<{ positive: number | null } | null>(null)
   const [citationShare, setCitationShare] = useState<{ current: number | null; previous: number | null } | null>(null)
   const [avgPos, setAvgPos] = useState<{ current: number | null; previous: number | null } | null>(null)
-  const [topComp, setTopComp] = useState<{ name: string; pct: number } | null>(null)
+  const [competitors, setCompetitors] = useState<CompetitorRow[]>([])
   const [sparkData, setSparkData] = useState<{ date: string; value: number }[]>([])
   const [freshness, setFreshness] = useState<{ lastRunDate: string | null; promptCount: number; platformCount: number } | null>(null)
 
@@ -41,7 +41,7 @@ export default function HomePage() {
       getSentimentBreakdown(supabase, f),
       getCitationShare(supabase, f),
       getAvgPosition(supabase, f),
-      getTopCompetitorThisWeek(supabase, f.startDate, f.endDate),
+      getCompetitorLeaderboard(supabase, f),
       getClayOverallTimeseries(supabase, f),
       getDataFreshnessStats(supabase),
     ]).then(([ins, ano, vis, sent, cit, pos, comp, spark, fresh]) => {
@@ -51,7 +51,7 @@ export default function HomePage() {
       setSentiment({ positive: sent.positive })
       setCitationShare(cit)
       setAvgPos(pos)
-      setTopComp(comp)
+      setCompetitors((comp as CompetitorRow[]).slice(0, 6))
       setFreshness(fresh)
       setSparkData(spark)
 
@@ -161,8 +161,10 @@ export default function HomePage() {
                   domain={[0, 100]}
                 />
                 <Tooltip
-                  formatter={(val: number) => [`${val.toFixed(1)}%`, 'Visibility']}
-                  labelFormatter={(l: string) => formatShortDate(l)}
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  formatter={(val: any) => [`${Number(val).toFixed(1)}%`, 'Visibility']}
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  labelFormatter={(l: any) => formatShortDate(String(l))}
                   contentStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans', border: '1px solid var(--clay-border-dashed)', borderRadius: '8px' }}
                 />
                 <Line type="monotone" dataKey="value" stroke="var(--clay-black)" strokeWidth={2.5} dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} />
@@ -179,16 +181,23 @@ export default function HomePage() {
         </div>
 
         <div className="p-4" style={{ background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }}>
-          <h3 className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: 'rgba(26,25,21,0.45)' }}>Top Competitor This Week</h3>
+          <h3 className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: 'rgba(26,25,21,0.45)' }}>Top Competitors</h3>
           {loading ? (
             <SkeletonCard />
-          ) : topComp ? (
-            <div>
-              <p className="text-2xl font-bold" style={{ color: 'var(--clay-black)', letterSpacing: '-0.03em' }}>{topComp.name}</p>
-              <p className="text-xs font-bold uppercase tracking-wider mt-1" style={{ color: 'rgba(26,25,21,0.45)' }}>
-                Most mentioned: <span style={{ color: 'var(--clay-black)' }}>{topComp.pct.toFixed(1)}%</span> of responses
-              </p>
-            </div>
+          ) : competitors.length > 0 ? (
+            <table className="w-full">
+              <tbody>
+                {competitors.map((row, idx) => (
+                  <tr key={row.competitor_name} style={{ borderBottom: '1px solid rgba(26,25,21,0.05)' }}>
+                    <td className="py-1.5 text-[11px] font-bold tabular-nums" style={{ color: 'rgba(26,25,21,0.3)', width: '20px' }}>{idx + 1}</td>
+                    <td className="py-1.5 text-[13px] font-semibold" style={{ color: 'var(--clay-black)' }}>{row.competitor_name}</td>
+                    <td className="py-1.5 text-right text-[13px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
+                      {(row.visibility_score ?? row.sov_pct).toFixed(1)}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           ) : (
             <p className="text-xs font-bold" style={{ color: 'rgba(26,25,21,0.35)' }}>No competitor data</p>
           )}

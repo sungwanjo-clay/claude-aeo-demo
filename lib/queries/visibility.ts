@@ -96,9 +96,11 @@ export async function getFullLeaderboard(
 }
 
 export async function getDistinctPromptTypes(sb: SupabaseClient): Promise<string[]> {
-  const { data } = await sb.from('responses').select('prompt_type').not('prompt_type', 'is', null)
+  const { data } = await sb.from('responses').select('prompt_type').not('prompt_type', 'is', null).limit(5000)
   if (!data) return []
-  return [...new Set(data.map(r => r.prompt_type).filter(Boolean))].sort() as string[]
+  // Normalize whitespace and case before deduplicating
+  const normalized = data.map(r => (r.prompt_type ?? '').trim().toLowerCase()).filter(Boolean)
+  return [...new Set(normalized)].sort() as string[]
 }
 
 export async function getVisibilityTimeseries(
@@ -405,10 +407,13 @@ export async function getDistinctTopics(sb: SupabaseClient): Promise<string[]> {
   return [...new Set(data.map(r => r.topic).filter(Boolean))].sort() as string[]
 }
 
-export async function getDistinctTags(sb: SupabaseClient): Promise<string[]> {
-  const { data } = await sb.from('responses').select('tags').not('tags', 'is', null)
+export async function getDistinctTags(sb: SupabaseClient, startDate?: string, endDate?: string): Promise<string[]> {
+  let query = sb.from('responses').select('tags').not('tags', 'is', null).limit(5000)
+  if (startDate) query = query.gte('run_date', startDate)
+  if (endDate) query = query.lte('run_date', endDate)
+  const { data } = await query
   if (!data) return []
-  return [...new Set(data.map(r => r.tags).filter(Boolean))].sort() as string[]
+  return [...new Set(data.map(r => (r.tags ?? '').trim()).filter(Boolean))].sort() as string[]
 }
 
 export async function getLastRunDate(sb: SupabaseClient): Promise<string | null> {
