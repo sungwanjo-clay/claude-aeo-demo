@@ -441,37 +441,89 @@ export async function getClaygentTimeseries(
     .sort((a, b) => a.date.localeCompare(b.date))
 }
 
+export interface PMMPromptResponseRow {
+  id: string
+  platform: string
+  run_date: string
+  clay_mentioned: string | null
+  clay_mention_position: number | null
+  clay_mention_snippet: string | null
+  clay_cited: boolean
+  other_cited_domains: string[]
+}
+
+export interface PMMPromptDrillRow {
+  prompt_id: string
+  prompt_text: string
+  visibility_pct: number
+  avg_position: number | null
+  response_count: number
+  responses: PMMPromptResponseRow[]
+}
+
 export async function getPMMPromptDrilldown(
   sb: SupabaseClient,
   f: FilterParams,
   pmmUseCase: string
-): Promise<{ prompt_text: string; prompt_id: string; visibility_pct: number; avg_position: number | null; response_count: number }[]> {
+): Promise<PMMPromptDrillRow[]> {
   const { data } = await applyFilters(
-    sb.from('responses').select('prompt_id, clay_mentioned, clay_mention_position, pmm_use_case'),
+    sb.from('responses').select(
+      'id, prompt_id, platform, run_date, clay_mentioned, clay_mention_position, clay_mention_snippet, cited_domains, pmm_use_case'
+    ),
     { ...f }
   ).eq('pmm_use_case', pmmUseCase)
   if (!data?.length) return []
 
-  const map = new Map<string, { mentioned: number; total: number; positions: number[] }>()
+  // Group by prompt
+  const map = new Map<string, {
+    mentioned: number; total: number; positions: number[]
+    rows: PMMPromptResponseRow[]
+  }>()
+
   for (const row of data) {
-    const cur = map.get(row.prompt_id) ?? { mentioned: 0, total: 0, positions: [] }
+    const cur = map.get(row.prompt_id) ?? { mentioned: 0, total: 0, positions: [], rows: [] }
     cur.total++
     if (row.clay_mentioned === 'Yes') cur.mentioned++
     if (row.clay_mention_position != null) cur.positions.push(row.clay_mention_position)
+
+    // Parse cited_domains
+    let domains: string[] = []
+    try {
+      domains = Array.isArray(row.cited_domains)
+        ? row.cited_domains
+        : JSON.parse(row.cited_domains ?? '[]')
+    } catch { /* ignore */ }
+
+    const clayCited = domains.some((d: string) => typeof d === 'string' && d.toLowerCase().includes('clay.com'))
+    const otherDomains = domains
+      .filter((d: string) => typeof d === 'string' && !d.toLowerCase().includes('clay.com'))
+      .slice(0, 5)
+
+    cur.rows.push({
+      id: row.id,
+      platform: row.platform,
+      run_date: (row.run_date ?? '').substring(0, 10),
+      clay_mentioned: row.clay_mentioned,
+      clay_mention_position: row.clay_mention_position,
+      clay_mention_snippet: row.clay_mention_snippet,
+      clay_cited: clayCited,
+      other_cited_domains: otherDomains,
+    })
     map.set(row.prompt_id, cur)
   }
 
-  // Get prompt texts for these IDs
+  // Fetch prompt texts
   const ids = Array.from(map.keys())
   const { data: prompts } = await sb.from('prompts').select('prompt_id, prompt_text').in('prompt_id', ids)
-  const textMap = new Map((prompts ?? []).map(p => [p.prompt_id, p.prompt_text]))
+  const textMap = new Map((prompts ?? []).map((p: any) => [p.prompt_id, p.prompt_text]))
 
-  return Array.from(map.entries()).map(([prompt_id, { mentioned, total, positions }]) => ({
+  return Array.from(map.entries()).map(([prompt_id, { mentioned, total, positions, rows }]) => ({
     prompt_id,
     prompt_text: textMap.get(prompt_id) ?? '(unknown prompt)',
     visibility_pct: total > 0 ? (mentioned / total) * 100 : 0,
-    avg_position: positions.length > 0 ? positions.reduce((a, b) => a + b, 0) / positions.length : null,
+    avg_position: positions.length > 0 ? positions.reduce((a: number, b: number) => a + b, 0) / positions.length : null,
     response_count: total,
+    responses: rows.sort((a, b) => b.run_date.localeCompare(a.run_date)),
   })).sort((a, b) => b.visibility_pct - a.visibility_pct)
 }
 

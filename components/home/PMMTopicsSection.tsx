@@ -6,6 +6,7 @@ import { TrendingUp, TrendingDown } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { formatShortDate } from '@/lib/utils/formatters'
 import { CHART_COLORS } from '@/lib/utils/colors'
+import type { PMMPromptDrillRow, PMMPromptResponseRow } from '@/lib/queries/visibility'
 
 interface TimeseriesRow { date: string; value: number; pmm_use_case?: string }
 interface PMMRow {
@@ -15,19 +16,12 @@ interface PMMRow {
   total_responses: number
   timeseries: { date: string; value: number }[]
 }
-interface PromptDrillRow {
-  prompt_id: string
-  prompt_text: string
-  visibility_pct: number
-  avg_position: number | null
-  response_count: number
-}
 
 interface Props {
   series: TimeseriesRow[]
   table: PMMRow[]
   compareEnabled: boolean
-  onDrilldown: (pmmUseCase: string) => Promise<PromptDrillRow[]>
+  onDrilldown: (pmmUseCase: string) => Promise<PMMPromptDrillRow[]>
 }
 
 const cardStyle = { background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }
@@ -37,20 +31,186 @@ function buildChartData(series: TimeseriesRow[]) {
   const groups = [...new Set(series.map(r => r.pmm_use_case).filter(Boolean))]
   const dates = [...new Set(series.map(r => r.date))].sort()
   const lookup = new Map(series.map(r => [`${r.date}|||${r.pmm_use_case}`, r.value]))
-  return dates.map(date => {
+  return { groups, chartData: dates.map(date => {
     const row: Record<string, string | number> = { date }
     for (const g of groups) row[g!] = lookup.get(`${date}|||${g}`) ?? 0
     return row
-  })
+  })}
 }
 
+// ── Per-response detail row ────────────────────────────────────────────────
+function ResponseRow({ r }: { r: PMMPromptResponseRow }) {
+  const [open, setOpen] = useState(false)
+  const mentioned = r.clay_mentioned === 'Yes'
+
+  return (
+    <div
+      style={{ borderBottom: '1px solid rgba(26,25,21,0.04)', background: open ? 'rgba(26,25,21,0.015)' : 'transparent' }}
+    >
+      {/* Summary row */}
+      <div
+        className="grid items-center gap-2 px-3 py-2 cursor-pointer hover:bg-[rgba(26,25,21,0.02)]"
+        style={{ gridTemplateColumns: '80px 70px 56px 56px 56px 1fr 16px' }}
+        onClick={() => setOpen(v => !v)}
+      >
+        {/* Platform badge */}
+        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded inline-block text-center"
+          style={{
+            background: r.platform === 'ChatGPT' ? 'rgba(61,170,106,0.12)' : 'rgba(204,61,138,0.12)',
+            color: r.platform === 'ChatGPT' ? '#3DAA6A' : '#CC3D8A',
+          }}>
+          {r.platform}
+        </span>
+
+        {/* Date */}
+        <span className="text-[11px] tabular-nums" style={{ color: 'rgba(26,25,21,0.5)' }}>
+          {r.run_date}
+        </span>
+
+        {/* Mentioned */}
+        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-center"
+          style={{
+            background: mentioned ? 'rgba(200,240,64,0.25)' : 'rgba(229,54,42,0.08)',
+            color: mentioned ? 'var(--clay-black)' : 'var(--clay-pomegranate)',
+          }}>
+          {mentioned ? 'Yes' : 'No'}
+        </span>
+
+        {/* Position */}
+        <span className="text-[12px] font-bold tabular-nums text-center" style={{ color: 'var(--clay-black)' }}>
+          {r.clay_mention_position != null ? `#${r.clay_mention_position}` : '—'}
+        </span>
+
+        {/* Cited */}
+        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-center"
+          style={{
+            background: r.clay_cited ? 'rgba(200,240,64,0.25)' : 'rgba(26,25,21,0.06)',
+            color: r.clay_cited ? 'var(--clay-black)' : 'rgba(26,25,21,0.4)',
+          }}>
+          {r.clay_cited ? 'Cited' : '—'}
+        </span>
+
+        {/* Other domains (inline pill list) */}
+        <div className="flex flex-wrap gap-1">
+          {r.other_cited_domains.slice(0, 3).map(d => (
+            <span key={d} className="text-[9px] font-semibold px-1.5 py-0.5 rounded"
+              style={{ background: 'rgba(26,25,21,0.06)', color: 'rgba(26,25,21,0.55)' }}>
+              {d}
+            </span>
+          ))}
+          {r.other_cited_domains.length > 3 && (
+            <span className="text-[9px] font-semibold" style={{ color: 'rgba(26,25,21,0.35)' }}>
+              +{r.other_cited_domains.length - 3}
+            </span>
+          )}
+        </div>
+
+        {/* Expand toggle (only if there's a snippet) */}
+        <div>
+          {r.clay_mention_snippet ? (
+            open
+              ? <ChevronDown size={11} style={{ color: 'rgba(26,25,21,0.35)' }} />
+              : <ChevronRight size={11} style={{ color: 'rgba(26,25,21,0.35)' }} />
+          ) : null}
+        </div>
+      </div>
+
+      {/* Expanded snippet */}
+      {open && r.clay_mention_snippet && (
+        <div className="px-3 pb-3">
+          <div className="rounded-lg px-3 py-2.5" style={{ background: 'rgba(200,240,64,0.1)', border: '1px solid rgba(200,240,64,0.3)' }}>
+            <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: 'rgba(26,25,21,0.45)' }}>Clay mention snippet</p>
+            <p className="text-[12px] font-semibold leading-relaxed" style={{ color: 'var(--clay-black)' }}>
+              &ldquo;{r.clay_mention_snippet}&rdquo;
+            </p>
+          </div>
+          {r.other_cited_domains.length > 0 && (
+            <div className="mt-2">
+              <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: 'rgba(26,25,21,0.45)' }}>
+                All cited domains alongside Clay
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {r.other_cited_domains.map(d => (
+                  <span key={d} className="text-[11px] font-semibold px-2 py-0.5 rounded"
+                    style={{ background: 'rgba(26,25,21,0.06)', color: 'rgba(26,25,21,0.6)' }}>
+                    {d}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Per-prompt block ───────────────────────────────────────────────────────
+function PromptBlock({ p, colSpan }: { p: PMMPromptDrillRow; colSpan: number }) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <React.Fragment>
+      <tr
+        onClick={() => setOpen(v => !v)}
+        className="cursor-pointer hover:bg-[rgba(26,25,21,0.02)] transition-colors"
+        style={{ borderBottom: open ? 'none' : '1px solid rgba(26,25,21,0.04)' }}
+      >
+        <td className="px-3 py-2.5" style={{ paddingLeft: '20px' }}>
+          <div className="flex items-center gap-2">
+            {open
+              ? <ChevronDown size={11} style={{ color: 'rgba(26,25,21,0.4)', flexShrink: 0 }} />
+              : <ChevronRight size={11} style={{ color: 'rgba(26,25,21,0.4)', flexShrink: 0 }} />}
+            <span className="text-[12px] font-semibold" style={{ color: 'var(--clay-black)' }}>
+              {p.prompt_text}
+            </span>
+          </div>
+        </td>
+        <td className="px-3 py-2.5 text-right text-[12px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
+          {p.visibility_pct.toFixed(1)}%
+        </td>
+        <td className="px-3 py-2.5 text-right text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.55)' }}>
+          {p.avg_position != null ? `#${p.avg_position.toFixed(1)}` : '—'}
+        </td>
+        <td className="px-3 py-2.5 text-right text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.45)' }}>
+          {p.response_count}
+        </td>
+      </tr>
+
+      {open && (
+        <tr style={{ borderBottom: '1px solid rgba(26,25,21,0.04)' }}>
+          <td colSpan={colSpan} style={{ padding: '0 12px 10px 20px' }}>
+            <div className="rounded-lg overflow-hidden" style={{ border: '1px solid rgba(26,25,21,0.08)' }}>
+              {/* Column headers */}
+              <div
+                className="grid gap-2 px-3 py-1.5"
+                style={{
+                  gridTemplateColumns: '80px 70px 56px 56px 56px 1fr 16px',
+                  background: 'rgba(26,25,21,0.04)',
+                  borderBottom: '1px solid rgba(26,25,21,0.07)',
+                }}
+              >
+                {['Platform', 'Date', 'Mentioned', 'Position', 'Cited', 'Other cited domains', ''].map(h => (
+                  <span key={h} style={{ ...labelStyle, fontSize: '9px' }}>{h}</span>
+                ))}
+              </div>
+              {/* Response rows */}
+              {p.responses.map(r => <ResponseRow key={r.id} r={r} />)}
+            </div>
+          </td>
+        </tr>
+      )}
+    </React.Fragment>
+  )
+}
+
+// ── Main component ─────────────────────────────────────────────────────────
 export default function PMMTopicsSection({ series, table, compareEnabled, onDrilldown }: Props) {
   const [expandedPMM, setExpandedPMM] = useState<string | null>(null)
-  const [drillRows, setDrillRows] = useState<Record<string, PromptDrillRow[]>>({})
+  const [drillRows, setDrillRows] = useState<Record<string, PMMPromptDrillRow[]>>({})
   const [loadingDrill, setLoadingDrill] = useState<string | null>(null)
 
-  const groups = [...new Set(series.map(r => r.pmm_use_case).filter(Boolean))]
-  const chartData = buildChartData(series)
+  const { groups, chartData } = buildChartData(series)
 
   async function toggleDrill(pmm: string) {
     if (expandedPMM === pmm) { setExpandedPMM(null); return }
@@ -62,6 +222,8 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
       setLoadingDrill(null)
     }
   }
+
+  const colSpan = compareEnabled ? 5 : 4
 
   return (
     <div className="space-y-4">
@@ -100,7 +262,10 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
 
       {/* Table */}
       <div className="p-5" style={cardStyle}>
-        <h2 style={labelStyle} className="mb-4">PMM Breakdown — click to drill into prompts</h2>
+        <h2 style={labelStyle} className="mb-1">PMM Breakdown</h2>
+        <p className="text-[11px] font-semibold mb-4" style={{ color: 'rgba(26,25,21,0.4)' }}>
+          Click a row to expand prompts → click a prompt to see individual responses
+        </p>
         {table.length === 0 ? (
           <p className="py-6 text-center text-[12px] font-semibold" style={{ color: 'rgba(26,25,21,0.35)' }}>No PMM data</p>
         ) : (
@@ -121,12 +286,20 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
                 const drill = drillRows[row.pmm_use_case]
                 return (
                   <React.Fragment key={row.pmm_use_case}>
+                    {/* PMM row */}
                     <tr
                       onClick={() => toggleDrill(row.pmm_use_case)}
                       className="cursor-pointer hover:bg-[rgba(26,25,21,0.02)] transition-colors"
                       style={{ borderBottom: expanded ? 'none' : '1px solid rgba(26,25,21,0.05)' }}
                     >
-                      <td className="py-2.5 text-[13px] font-semibold" style={{ color: 'var(--clay-black)' }}>{row.pmm_use_case}</td>
+                      <td className="py-2.5 text-[13px] font-semibold" style={{ color: 'var(--clay-black)' }}>
+                        <div className="flex items-center gap-2">
+                          {expanded
+                            ? <ChevronDown size={13} style={{ color: 'rgba(26,25,21,0.35)', flexShrink: 0 }} />
+                            : <ChevronRight size={13} style={{ color: 'rgba(26,25,21,0.35)', flexShrink: 0 }} />}
+                          {row.pmm_use_case}
+                        </div>
+                      </td>
                       <td className="py-2.5 text-right text-[13px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
                         {row.visibility_score.toFixed(1)}%
                       </td>
@@ -144,51 +317,39 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
                       <td className="py-2.5 text-right text-[12px] font-semibold tabular-nums" style={{ color: 'rgba(26,25,21,0.5)' }}>
                         {row.total_responses.toLocaleString()}
                       </td>
-                      <td className="py-2.5 text-center">
-                        {expanded
-                          ? <ChevronDown size={12} style={{ color: 'rgba(26,25,21,0.4)' }} />
-                          : <ChevronRight size={12} style={{ color: 'rgba(26,25,21,0.4)' }} />}
-                      </td>
+                      <td />
                     </tr>
+
+                    {/* Drill-down: prompt list */}
                     {expanded && (
                       <tr style={{ borderBottom: '1px solid rgba(26,25,21,0.05)' }}>
-                        <td colSpan={compareEnabled ? 5 : 4} style={{ paddingBottom: '8px' }}>
-                          <div className="ml-4 rounded-lg overflow-hidden" style={{ background: 'rgba(26,25,21,0.02)', border: '1px solid rgba(26,25,21,0.06)' }}>
-                            {loadingDrill === row.pmm_use_case ? (
-                              <p className="px-3 py-4 text-[11px] font-semibold" style={{ color: 'rgba(26,25,21,0.4)' }}>Loading prompts…</p>
-                            ) : !drill || drill.length === 0 ? (
-                              <p className="px-3 py-4 text-[11px] font-semibold" style={{ color: 'rgba(26,25,21,0.35)' }}>No prompt data</p>
-                            ) : (
+                        <td colSpan={colSpan} style={{ paddingBottom: '10px', paddingLeft: '4px', paddingRight: '4px' }}>
+                          {loadingDrill === row.pmm_use_case ? (
+                            <p className="px-4 py-3 text-[11px] font-semibold" style={{ color: 'rgba(26,25,21,0.4)' }}>Loading prompts…</p>
+                          ) : !drill || drill.length === 0 ? (
+                            <p className="px-4 py-3 text-[11px] font-semibold" style={{ color: 'rgba(26,25,21,0.35)' }}>No prompt data</p>
+                          ) : (
+                            <div className="rounded-lg overflow-hidden" style={{ border: '1px solid rgba(26,25,21,0.08)' }}>
+                              {/* Prompt table header */}
+                              <div className="grid px-3 py-1.5" style={{
+                                gridTemplateColumns: '1fr 80px 72px 72px',
+                                background: 'rgba(26,25,21,0.03)',
+                                borderBottom: '1px solid rgba(26,25,21,0.07)',
+                              }}>
+                                {['Prompt', 'Visibility', 'Avg Pos', 'Responses'].map((h, i) => (
+                                  <span key={h} className={i > 0 ? 'text-right' : ''} style={{ ...labelStyle, fontSize: '9px' }}>{h}</span>
+                                ))}
+                              </div>
+                              {/* Prompt rows — each manages its own response expansion */}
                               <table className="w-full">
-                                <thead>
-                                  <tr style={{ borderBottom: '1px solid rgba(26,25,21,0.06)' }}>
-                                    <th className="px-3 py-1.5 text-left" style={{ ...labelStyle, fontSize: '9px' }}>Prompt</th>
-                                    <th className="px-3 py-1.5 text-right" style={{ ...labelStyle, fontSize: '9px' }}>Visibility</th>
-                                    <th className="px-3 py-1.5 text-right" style={{ ...labelStyle, fontSize: '9px' }}>Avg Pos</th>
-                                    <th className="px-3 py-1.5 text-right" style={{ ...labelStyle, fontSize: '9px' }}>Responses</th>
-                                  </tr>
-                                </thead>
                                 <tbody>
                                   {drill.map(p => (
-                                    <tr key={p.prompt_id} style={{ borderBottom: '1px solid rgba(26,25,21,0.04)' }}>
-                                      <td className="px-3 py-2 text-[12px] font-semibold max-w-md" style={{ color: 'var(--clay-black)' }}>
-                                        {p.prompt_text}
-                                      </td>
-                                      <td className="px-3 py-2 text-right text-[12px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
-                                        {p.visibility_pct.toFixed(1)}%
-                                      </td>
-                                      <td className="px-3 py-2 text-right text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.6)' }}>
-                                        {p.avg_position != null ? `#${p.avg_position.toFixed(1)}` : '—'}
-                                      </td>
-                                      <td className="px-3 py-2 text-right text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.5)' }}>
-                                        {p.response_count}
-                                      </td>
-                                    </tr>
+                                    <PromptBlock key={p.prompt_id} p={p} colSpan={4} />
                                   ))}
                                 </tbody>
                               </table>
-                            )}
-                          </div>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     )}
