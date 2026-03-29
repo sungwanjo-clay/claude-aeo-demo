@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useGlobalFilters } from '@/context/GlobalFilters'
 import { supabase } from '@/lib/supabase/client'
 import { getLatestInsight, getActiveAnomalies } from '@/lib/queries/home'
-import { getVisibilityScore, getDataFreshnessStats, getClayOverallTimeseries, getCompetitorLeaderboard } from '@/lib/queries/visibility'
+import { getVisibilityScore, getDataFreshnessStats, getClayOverallTimeseries, getCompetitorLeaderboard, getVisibilityByPMM, getPMMTable, getClaygentTimeseries, getPMMPromptDrilldown } from '@/lib/queries/visibility'
 import { getSentimentBreakdown } from '@/lib/queries/sentiment'
-import { getCitationShare } from '@/lib/queries/citations'
+import { getCitationShare, getCitationOverallTimeseries, getTopCitedDomainsWithURLs } from '@/lib/queries/citations'
 import { getAvgPosition } from '@/lib/queries/visibility'
 import type { InsightRow, AnomalyRow, CompetitorRow } from '@/lib/queries/types'
 import InsightCard from '@/components/cards/InsightCard'
@@ -16,9 +16,12 @@ import { SkeletonCard, SkeletonChart } from '@/components/shared/Skeleton'
 import { formatDate, formatShortDate } from '@/lib/utils/formatters'
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { LineChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts'
+import CitationSection from '@/components/home/CitationSection'
+import PMMTopicsSection from '@/components/home/PMMTopicsSection'
+import ClaygentSection from '@/components/home/ClaygentSection'
 
 export default function HomePage() {
-  const { toQueryParams } = useGlobalFilters()
+  const { filters, toQueryParams } = useGlobalFilters()
   const f = toQueryParams()
 
   const [loading, setLoading] = useState(true)
@@ -31,6 +34,13 @@ export default function HomePage() {
   const [competitors, setCompetitors] = useState<CompetitorRow[]>([])
   const [sparkData, setSparkData] = useState<{ date: string; value: number }[]>([])
   const [freshness, setFreshness] = useState<{ lastRunDate: string | null; promptCount: number; platformCount: number } | null>(null)
+
+  const [loadingExtra, setLoadingExtra] = useState(true)
+  const [citationTimeseries, setCitationTimeseries] = useState<{ date: string; value: number }[]>([])
+  const [citedDomains, setCitedDomains] = useState<{ domain: string; citation_count: number; share_pct: number; is_clay: boolean; top_urls: { url: string; title: string | null; count: number }[] }[]>([])
+  const [pmmSeries, setPmmSeries] = useState<{ date: string; value: number; pmm_use_case?: string }[]>([])
+  const [pmmTable, setPmmTable] = useState<{ pmm_use_case: string; visibility_score: number; delta: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]>([])
+  const [claygentTimeseries, setClaygentTimeseries] = useState<{ date: string; value: number }[]>([])
 
   useEffect(() => {
     setLoading(true)
@@ -57,6 +67,30 @@ export default function HomePage() {
 
       setLoading(false)
     })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter])
+
+  useEffect(() => {
+    setLoadingExtra(true)
+    Promise.all([
+      getCitationOverallTimeseries(supabase, f),
+      getTopCitedDomainsWithURLs(supabase, f),
+      getVisibilityByPMM(supabase, f),
+      getPMMTable(supabase, f),
+      getClaygentTimeseries(supabase, f),
+    ]).then(([citTs, citDom, pmmTs, pmmTbl, claygentTs]) => {
+      setCitationTimeseries(citTs)
+      setCitedDomains(citDom)
+      setPmmSeries(pmmTs)
+      setPmmTable(pmmTbl)
+      setClaygentTimeseries(claygentTs)
+      setLoadingExtra(false)
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter])
+
+  const handlePMMDrilldown = useCallback(async (pmmUseCase: string) => {
+    return getPMMPromptDrilldown(supabase, f, pmmUseCase)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter])
 
@@ -202,6 +236,26 @@ export default function HomePage() {
             <p className="text-xs font-bold" style={{ color: 'rgba(26,25,21,0.35)' }}>No competitor data</p>
           )}
         </div>
+      </div>
+
+      {/* Citations */}
+      <div>
+        <h2 className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'rgba(26,25,21,0.45)' }}>Citations</h2>
+        {loadingExtra ? <div className="space-y-4"><SkeletonChart /><SkeletonChart /></div> : <CitationSection timeseries={citationTimeseries} domains={citedDomains} />}
+      </div>
+
+      {/* Topic Visibility */}
+      <div>
+        <h2 className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'rgba(26,25,21,0.45)' }}>Topic Visibility</h2>
+        {loadingExtra ? <div className="space-y-4"><SkeletonChart /><SkeletonChart /></div> : (
+          <PMMTopicsSection series={pmmSeries} table={pmmTable} compareEnabled={filters.compareEnabled} onDrilldown={handlePMMDrilldown} />
+        )}
+      </div>
+
+      {/* ClayMCP & Agent */}
+      <div>
+        <h2 className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'rgba(26,25,21,0.45)' }}>ClayMCP & Agent</h2>
+        {loadingExtra ? <SkeletonChart /> : <ClaygentSection timeseries={claygentTimeseries} />}
       </div>
 
       {/* Data freshness */}

@@ -174,3 +174,76 @@ export async function getCitationTypeBreakdown(
     type, count, pct: (count / total) * 100,
   })).sort((a, b) => b.count - a.count)
 }
+
+export async function getCitationOverallTimeseries(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<{ date: string; value: number }[]> {
+  const { data } = await applyResponseFilters(
+    sb.from('responses').select('run_date, cited_domains'),
+    f
+  )
+  if (!data) return []
+
+  const map = new Map<string, { clayCited: number; total: number }>()
+  for (const row of data) {
+    const date = (row.run_date ?? '').substring(0, 10)
+    if (!date) continue
+    const cur = map.get(date) ?? { clayCited: 0, total: 0 }
+    cur.total++
+    try {
+      const domains = Array.isArray(row.cited_domains) ? row.cited_domains : JSON.parse(row.cited_domains ?? '[]')
+      if (domains.some((d: string) => typeof d === 'string' && d.includes('clay.com'))) cur.clayCited++
+    } catch { /* ignore */ }
+    map.set(date, cur)
+  }
+
+  return Array.from(map.entries())
+    .map(([date, { clayCited, total }]) => ({ date, value: total > 0 ? (clayCited / total) * 100 : 0 }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+}
+
+export async function getTopCitedDomainsWithURLs(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<{ domain: string; citation_count: number; share_pct: number; is_clay: boolean; top_urls: { url: string; title: string | null; count: number }[] }[]> {
+  let query = sb
+    .from('citation_domains')
+    .select('domain, url, title, citation_type')
+    .gte('run_date', f.startDate)
+    .lte('run_date', f.endDate)
+  if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
+
+  const { data } = await query
+  if (!data?.length) return []
+
+  const total = data.length
+  const domainMap = new Map<string, { count: number; is_clay: boolean; urls: Map<string, { title: string | null; count: number }> }>()
+
+  for (const row of data) {
+    const d = (row.domain ?? '').toLowerCase()
+    if (!d) continue
+    const cur = domainMap.get(d) ?? { count: 0, is_clay: d.includes('clay.com'), urls: new Map() }
+    cur.count++
+    if (row.url) {
+      const u = cur.urls.get(row.url) ?? { title: row.title ?? null, count: 0 }
+      u.count++
+      cur.urls.set(row.url, u)
+    }
+    domainMap.set(d, cur)
+  }
+
+  return Array.from(domainMap.entries())
+    .map(([domain, { count, is_clay, urls }]) => ({
+      domain,
+      citation_count: count,
+      share_pct: total > 0 ? (count / total) * 100 : 0,
+      is_clay,
+      top_urls: Array.from(urls.entries())
+        .map(([url, { title, count }]) => ({ url, title, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 8),
+    }))
+    .sort((a, b) => b.citation_count - a.citation_count)
+    .slice(0, 20)
+}

@@ -416,6 +416,65 @@ export async function getDistinctTags(sb: SupabaseClient, startDate?: string, en
   return [...new Set(data.map(r => (r.tags ?? '').trim()).filter(Boolean))].sort() as string[]
 }
 
+export async function getClaygentTimeseries(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<{ date: string; value: number }[]> {
+  const { data } = await applyFilters(
+    sb.from('responses').select('run_date, claygent_or_mcp_mentioned'),
+    f
+  )
+  if (!data) return []
+
+  const map = new Map<string, { mentioned: number; total: number }>()
+  for (const row of data) {
+    const date = (row.run_date ?? '').substring(0, 10)
+    if (!date) continue
+    const cur = map.get(date) ?? { mentioned: 0, total: 0 }
+    cur.total++
+    if (row.claygent_or_mcp_mentioned === 'Yes') cur.mentioned++
+    map.set(date, cur)
+  }
+
+  return Array.from(map.entries())
+    .map(([date, { mentioned, total }]) => ({ date, value: total > 0 ? (mentioned / total) * 100 : 0 }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+}
+
+export async function getPMMPromptDrilldown(
+  sb: SupabaseClient,
+  f: FilterParams,
+  pmmUseCase: string
+): Promise<{ prompt_text: string; prompt_id: string; visibility_pct: number; avg_position: number | null; response_count: number }[]> {
+  const { data } = await applyFilters(
+    sb.from('responses').select('prompt_id, clay_mentioned, clay_mention_position, pmm_use_case'),
+    { ...f }
+  ).eq('pmm_use_case', pmmUseCase)
+  if (!data?.length) return []
+
+  const map = new Map<string, { mentioned: number; total: number; positions: number[] }>()
+  for (const row of data) {
+    const cur = map.get(row.prompt_id) ?? { mentioned: 0, total: 0, positions: [] }
+    cur.total++
+    if (row.clay_mentioned === 'Yes') cur.mentioned++
+    if (row.clay_mention_position != null) cur.positions.push(row.clay_mention_position)
+    map.set(row.prompt_id, cur)
+  }
+
+  // Get prompt texts for these IDs
+  const ids = Array.from(map.keys())
+  const { data: prompts } = await sb.from('prompts').select('prompt_id, prompt_text').in('prompt_id', ids)
+  const textMap = new Map((prompts ?? []).map(p => [p.prompt_id, p.prompt_text]))
+
+  return Array.from(map.entries()).map(([prompt_id, { mentioned, total, positions }]) => ({
+    prompt_id,
+    prompt_text: textMap.get(prompt_id) ?? '(unknown prompt)',
+    visibility_pct: total > 0 ? (mentioned / total) * 100 : 0,
+    avg_position: positions.length > 0 ? positions.reduce((a, b) => a + b, 0) / positions.length : null,
+    response_count: total,
+  })).sort((a, b) => b.visibility_pct - a.visibility_pct)
+}
+
 export async function getLastRunDate(sb: SupabaseClient): Promise<string | null> {
   const { data } = await sb
     .from('responses')
