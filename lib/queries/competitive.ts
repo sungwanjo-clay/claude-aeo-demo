@@ -2,6 +2,194 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import type { FilterParams, CompetitorRow } from './types'
 
+// ── helpers ────────────────────────────────────────────────────────────────
+
+/** Derive a search slug from a competitor name for domain matching.
+ *  "Apollo.io" → "apollo", "Clay" → "clay", "HubSpot" → "hubspot" */
+function domainSlug(competitor: string): string {
+  return competitor.toLowerCase().replace(/\.(?:com|io|co|net|org|ai).*$/, '').replace(/[^a-z0-9]/g, '')
+}
+
+// ── list ────────────────────────────────────────────────────────────────────
+
+export async function getCompetitorList(sb: SupabaseClient): Promise<string[]> {
+  const { data } = await sb
+    .from('response_competitors')
+    .select('competitor_name')
+    .not('competitor_name', 'is', null)
+  if (!data) return ['Clay']
+  const list = [...new Set(data.map(r => r.competitor_name))].sort() as string[]
+  return ['Clay', ...list.filter(c => c.toLowerCase() !== 'clay')]
+}
+
+// ── Clay-specific KPIs ──────────────────────────────────────────────────────
+
+export async function getClayKPIs(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<{
+  visibilityScore: number | null
+  deltaVisibility: number | null
+  citationRate: number | null
+  deltaCitationRate: number | null
+  avgPosition: number | null
+  mentionCount: number
+  topTopic: string | null
+  topPlatform: string | null
+}> {
+  const [curData, prevData, citCur, citPrev] = await Promise.all([
+    sb.from('responses').select('clay_mentioned, clay_mention_position, topic, platform, cited_domains')
+      .gte('run_date', f.startDate).lte('run_date', f.endDate),
+    sb.from('responses').select('clay_mentioned, cited_domains')
+      .gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate),
+    sb.from('citation_domains').select('domain')
+      .gte('run_date', f.startDate).lte('run_date', f.endDate)
+      .ilike('domain', '%clay%'),
+    sb.from('citation_domains').select('domain')
+      .gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate)
+      .ilike('domain', '%clay%'),
+  ])
+
+  const cur = curData.data ?? []
+  const prev = prevData.data ?? []
+
+  // Visibility
+  const mentionedCur = cur.filter(r => r.clay_mentioned === 'Yes')
+  const mentionedPrev = prev.filter(r => r.clay_mentioned === 'Yes')
+  const visScore = cur.length > 0 ? (mentionedCur.length / cur.length) * 100 : null
+  const visPrev = prev.length > 0 ? (mentionedPrev.length / prev.length) * 100 : null
+  const deltaVis = visScore !== null && visPrev !== null ? visScore - visPrev : null
+
+  // Avg position
+  const positions = cur.filter(r => r.clay_mention_position != null).map(r => r.clay_mention_position as number)
+  const avgPosition = positions.length > 0 ? positions.reduce((a, b) => a + b, 0) / positions.length : null
+
+  // Top topic / platform
+  const topicMap = new Map<string, number>()
+  const platformMap = new Map<string, number>()
+  for (const r of mentionedCur) {
+    if (r.topic) topicMap.set(r.topic, (topicMap.get(r.topic) ?? 0) + 1)
+    if (r.platform) platformMap.set(r.platform, (platformMap.get(r.platform) ?? 0) + 1)
+  }
+  const topTopic = [...topicMap.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+  const topPlatform = [...platformMap.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+
+  // Citation rate (from citation_domains table for clay domains)
+  // Total responses in period as denominator
+  const citCount = citCur.data?.length ?? 0
+  const citPrevCount = citPrev.data?.length ?? 0
+  const citRate = cur.length > 0 ? (citCount / cur.length) * 100 : null
+  const citRatePrev = prev.length > 0 ? (citPrevCount / prev.length) * 100 : null
+  const deltaCitRate = citRate !== null && citRatePrev !== null ? citRate - citRatePrev : null
+
+  return {
+    visibilityScore: visScore,
+    deltaVisibility: deltaVis,
+    citationRate: citRate,
+    deltaCitationRate: deltaCitRate,
+    avgPosition,
+    mentionCount: mentionedCur.length,
+    topTopic,
+    topPlatform,
+  }
+}
+
+export async function getClayVisibilityTimeseries(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<{ date: string; value: number }[]> {
+  const { data } = await sb
+    .from('responses')
+    .select('run_date, clay_mentioned')
+    .gte('run_date', f.startDate)
+    .lte('run_date', f.endDate)
+  if (!data) return []
+
+  const map = new Map<string, { total: number; yes: number }>()
+  for (const r of data) {
+    const d = (r.run_date ?? '').substring(0, 10)
+    if (!d) continue
+    const cur = map.get(d) ?? { total: 0, yes: 0 }
+    cur.total++
+    if (r.clay_mentioned === 'Yes') cur.yes++
+    map.set(d, cur)
+  }
+  return Array.from(map.entries())
+    .map(([date, { total, yes }]) => ({ date, value: total > 0 ? (yes / total) * 100 : 0 }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+}
+
+// ── Competitor-specific citation rate ───────────────────────────────────────
+
+export async function getCompetitorCitationRate(
+  sb: SupabaseClient,
+  f: FilterParams,
+  competitor: string
+): Promise<{ rate: number | null; count: number; deltaRate: number | null }> {
+  const slug = domainSlug(competitor)
+
+  const [citCur, citPrev, totalCur, totalPrev] = await Promise.all([
+    sb.from('citation_domains').select('domain')
+      .gte('run_date', f.startDate).lte('run_date', f.endDate)
+      .ilike('domain', `%${slug}%`),
+    sb.from('citation_domains').select('domain')
+      .gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate)
+      .ilike('domain', `%${slug}%`),
+    sb.from('responses').select('id', { count: 'exact', head: true })
+      .gte('run_date', f.startDate).lte('run_date', f.endDate),
+    sb.from('responses').select('id', { count: 'exact', head: true })
+      .gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate),
+  ])
+
+  const curCitations = citCur.data?.length ?? 0
+  const prevCitations = citPrev.data?.length ?? 0
+  const curTotal = totalCur.count ?? 0
+  const prevTotal = totalPrev.count ?? 0
+
+  const rate = curTotal > 0 ? (curCitations / curTotal) * 100 : null
+  const prevRate = prevTotal > 0 ? (prevCitations / prevTotal) * 100 : null
+  const deltaRate = rate !== null && prevRate !== null ? rate - prevRate : null
+
+  return { rate, count: curCitations, deltaRate }
+}
+
+// ── Citation profile (top cited URLs for a domain) ──────────────────────────
+
+export async function getCompetitorCitationProfile(
+  sb: SupabaseClient,
+  f: FilterParams,
+  competitor: string
+): Promise<{ url: string; title: string | null; domain: string; count: number; citation_type: string | null }[]> {
+  const slug = domainSlug(competitor)
+
+  let query = sb.from('citation_domains')
+    .select('url, title, domain, citation_type')
+    .gte('run_date', f.startDate)
+    .lte('run_date', f.endDate)
+    .ilike('domain', `%${slug}%`)
+
+  if (f.platforms?.length) query = query.in('platform', f.platforms)
+
+  const { data } = await query
+  if (!data?.length) return []
+
+  // Group by URL
+  const urlMap = new Map<string, { title: string | null; domain: string; citation_type: string | null; count: number }>()
+  for (const row of data) {
+    if (!row.url) continue
+    const cur = urlMap.get(row.url) ?? { title: row.title ?? null, domain: row.domain ?? '', citation_type: row.citation_type ?? null, count: 0 }
+    cur.count++
+    urlMap.set(row.url, cur)
+  }
+
+  return Array.from(urlMap.entries())
+    .map(([url, { title, domain, citation_type, count }]) => ({ url, title, domain, citation_type, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 25)
+}
+
+// ── Winners & Losers ────────────────────────────────────────────────────────
+
 export async function getWinnersAndLosers(
   sb: SupabaseClient,
   f: FilterParams
@@ -45,12 +233,37 @@ export async function getWinnersAndLosers(
   }).sort((a, b) => (b.delta ?? b.current) - (a.delta ?? a.current))
 }
 
+// ── PMM topic breakdown ─────────────────────────────────────────────────────
+
 export async function getCompetitorByPMMTopic(
   sb: SupabaseClient,
   f: FilterParams,
   competitor: string
 ): Promise<{ pmm_use_case: string; visibility_score: number; mention_count: number }[]> {
-  // Get response_ids where competitor is mentioned
+  // For Clay, compute from responses.clay_mentioned = 'Yes'
+  if (competitor === 'Clay') {
+    const { data } = await sb.from('responses')
+      .select('pmm_use_case, clay_mentioned')
+      .gte('run_date', f.startDate).lte('run_date', f.endDate)
+      .not('pmm_use_case', 'is', null)
+    if (!data?.length) return []
+
+    const totalsMap = new Map<string, number>()
+    const mentionsMap = new Map<string, number>()
+    for (const r of data) {
+      if (!r.pmm_use_case) continue
+      totalsMap.set(r.pmm_use_case, (totalsMap.get(r.pmm_use_case) ?? 0) + 1)
+      if (r.clay_mentioned === 'Yes') {
+        mentionsMap.set(r.pmm_use_case, (mentionsMap.get(r.pmm_use_case) ?? 0) + 1)
+      }
+    }
+    return Array.from(totalsMap.entries()).map(([pmm_use_case, total]) => {
+      const mention_count = mentionsMap.get(pmm_use_case) ?? 0
+      return { pmm_use_case, visibility_score: total > 0 ? (mention_count / total) * 100 : 0, mention_count }
+    }).sort((a, b) => b.visibility_score - a.visibility_score)
+  }
+
+  // For a real competitor, look at response_competitors
   const { data: rcData } = await sb
     .from('response_competitors')
     .select('response_id')
@@ -60,7 +273,6 @@ export async function getCompetitorByPMMTopic(
 
   const competitorResponseIds = new Set((rcData ?? []).map(r => r.response_id))
 
-  // Fetch all responses in period with pmm_use_case
   const { data: allResponses } = await sb
     .from('responses')
     .select('id, pmm_use_case')
@@ -70,10 +282,8 @@ export async function getCompetitorByPMMTopic(
 
   if (!allResponses?.length) return []
 
-  // Build totals per pmm_use_case and competitor mentions per pmm_use_case
   const totalsMap = new Map<string, number>()
   const mentionsMap = new Map<string, number>()
-
   for (const r of allResponses) {
     const uc = r.pmm_use_case
     if (!uc) continue
@@ -85,20 +295,17 @@ export async function getCompetitorByPMMTopic(
 
   return Array.from(totalsMap.entries()).map(([pmm_use_case, total]) => {
     const mention_count = mentionsMap.get(pmm_use_case) ?? 0
-    return {
-      pmm_use_case,
-      visibility_score: total > 0 ? (mention_count / total) * 100 : 0,
-      mention_count,
-    }
+    return { pmm_use_case, visibility_score: total > 0 ? (mention_count / total) * 100 : 0, mention_count }
   }).sort((a, b) => b.visibility_score - a.visibility_score)
 }
+
+// ── Co-cited domains ────────────────────────────────────────────────────────
 
 export async function getCompetitorCoCitedDomains(
   sb: SupabaseClient,
   f: FilterParams,
   competitor: string
 ): Promise<{ domain: string; count: number; share_pct: number; is_own_domain: boolean }[]> {
-  // Step 1: Get response_ids where competitor is mentioned
   const { data: rcData } = await sb
     .from('response_competitors')
     .select('response_id')
@@ -110,7 +317,6 @@ export async function getCompetitorCoCitedDomains(
 
   const responseIds = rcData.map(r => r.response_id)
 
-  // Step 2: Batch-fetch responses (slice to first 500 for safety)
   const { data: responses } = await sb
     .from('responses')
     .select('id, cited_domains')
@@ -118,7 +324,6 @@ export async function getCompetitorCoCitedDomains(
 
   if (!responses?.length) return []
 
-  // Step 3: Parse cited_domains JSON array and aggregate domain counts
   const domainCounts = new Map<string, number>()
   let responsesWithCitations = 0
 
@@ -138,28 +343,20 @@ export async function getCompetitorCoCitedDomains(
 
   if (!domainCounts.size) return []
 
-  // Step 4: Detect competitor's own domain
-  const competitorSlug = competitor.toLowerCase().split(/[\s.]/)[0]
+  const slug = domainSlug(competitor)
 
   return Array.from(domainCounts.entries())
     .map(([domain, count]) => ({
       domain,
       count,
       share_pct: responsesWithCitations > 0 ? (count / responsesWithCitations) * 100 : 0,
-      is_own_domain: domain.toLowerCase().includes(competitorSlug),
+      is_own_domain: domain.toLowerCase().includes(slug),
     }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 20)
 }
 
-export async function getCompetitorList(sb: SupabaseClient): Promise<string[]> {
-  const { data } = await sb
-    .from('response_competitors')
-    .select('competitor_name')
-    .not('competitor_name', 'is', null)
-  if (!data) return []
-  return [...new Set(data.map(r => r.competitor_name))].sort() as string[]
-}
+// ── KPIs ────────────────────────────────────────────────────────────────────
 
 export async function getCompetitorKPIs(
   sb: SupabaseClient,
@@ -205,12 +402,14 @@ export async function getCompetitorKPIs(
   return {
     visibilityScore: currentVis,
     mentionCount: rcData.length,
-    avgPosition: null, // positions tracked for Clay only
+    avgPosition: null,
     topTopic,
     topPlatform,
     deltaVisibility,
   }
 }
+
+// ── Heatmap ─────────────────────────────────────────────────────────────────
 
 export async function getPlatformHeatmap(
   sb: SupabaseClient,
@@ -248,6 +447,8 @@ export async function getPlatformHeatmap(
     }
   })
 }
+
+// ── Timeseries ───────────────────────────────────────────────────────────────
 
 export async function getCompetitorVsClayTimeseries(
   sb: SupabaseClient,
@@ -289,6 +490,8 @@ export async function getCompetitorVsClayTimeseries(
     return { date, clay: clayScore, competitor: compScore }
   })
 }
+
+// ── Claygent tracker ─────────────────────────────────────────────────────────
 
 export async function getClaygentMcpStats(
   sb: SupabaseClient,
