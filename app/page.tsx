@@ -181,6 +181,7 @@ export default function HomePage() {
               label="Visibility Score"
               value={visibility?.current != null ? `${visibility.current.toFixed(1)}%` : '—'}
               delta={visDelta()}
+              deltaLabel="vs prev period"
             />
             <KpiCard
               label="Citation Count"
@@ -190,16 +191,10 @@ export default function HomePage() {
               deltaIsCount
             />
             <KpiCard
-              label="ClayMCP & Agent"
-              value={claygentCount?.current != null ? claygentCount.current.toLocaleString() : '—'}
-              delta={claygentCount?.current != null && claygentCount?.previous != null ? claygentCount.current - claygentCount.previous : null}
-              deltaLabel="mentions"
-              deltaIsCount
-            />
-            <KpiCard
               label="Avg Position"
               value={avgPos?.current != null ? `#${avgPos.current.toFixed(1)}` : '—'}
               delta={posDelta()}
+              deltaLabel="vs prev period"
               invertDelta
             />
             <KpiCard
@@ -207,6 +202,13 @@ export default function HomePage() {
               value={sentiment?.positive != null ? `${sentiment.positive.toFixed(1)}%` : '—'}
               delta={null}
               deltaLabel="of Clay mentions"
+            />
+            <KpiCard
+              label="ClayMCP & Agent"
+              value={claygentCount?.current != null ? claygentCount.current.toLocaleString() : '—'}
+              delta={claygentCount?.current != null && claygentCount?.previous != null ? claygentCount.current - claygentCount.previous : null}
+              deltaLabel="vs prev period"
+              deltaIsCount
             />
             <KpiCard
               label="Total Prompts"
@@ -302,15 +304,41 @@ export default function HomePage() {
           ) : competitors.length > 0 ? (
             <table className="w-full">
               <tbody>
-                {competitors.map((row, idx) => (
-                  <tr key={row.competitor_name} style={{ borderBottom: '1px solid rgba(26,25,21,0.05)' }}>
-                    <td className="py-1.5 text-[11px] font-bold tabular-nums" style={{ color: 'rgba(26,25,21,0.3)', width: '20px' }}>{idx + 1}</td>
-                    <td className="py-1.5 text-[13px] font-semibold" style={{ color: 'var(--clay-black)' }}>{row.competitor_name}</td>
-                    <td className="py-1.5 text-right text-[13px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
-                      {(row.visibility_score ?? row.sov_pct).toFixed(1)}%
-                    </td>
-                  </tr>
-                ))}
+                {competitors.map((row, idx) => {
+                  const isClay = row.competitor_name === 'Clay'
+                  // For Clay, use the KPI visibility score so the numbers match
+                  const score = isClay && visibility?.current != null
+                    ? visibility.current
+                    : (row.visibility_score ?? row.sov_pct)
+                  const delta = isClay ? visDelta() : (row.delta ?? null)
+                  return (
+                    <tr key={row.competitor_name} style={{ borderBottom: '1px solid rgba(26,25,21,0.05)' }}>
+                      <td className="py-1.5 text-[11px] font-bold tabular-nums" style={{ color: 'rgba(26,25,21,0.3)', width: '20px' }}>{idx + 1}</td>
+                      <td className="py-1.5 text-[13px] font-semibold" style={{ color: 'var(--clay-black)' }}>
+                        <span className="flex items-center gap-1.5">
+                          {isClay && (
+                            <span className="inline-flex items-center justify-center text-[8px] font-extrabold px-1 py-0.5 rounded leading-none"
+                              style={{ background: 'var(--clay-lime)', color: 'var(--clay-black)', letterSpacing: '-0.01em' }}>
+                              C
+                            </span>
+                          )}
+                          {row.competitor_name}
+                        </span>
+                      </td>
+                      <td className="py-1.5 text-right text-[13px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
+                        {score.toFixed(1)}%
+                      </td>
+                      <td className="py-1.5 pl-2 text-right" style={{ width: '60px' }}>
+                        {delta != null && (
+                          <span className="text-[10px] font-bold tabular-nums"
+                            style={{ color: delta > 0 ? '#3a6200' : delta < 0 ? 'var(--clay-pomegranate)' : 'rgba(26,25,21,0.4)' }}>
+                            {delta > 0 ? '↑' : delta < 0 ? '↓' : '—'}{Math.abs(delta).toFixed(1)}%
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           ) : (

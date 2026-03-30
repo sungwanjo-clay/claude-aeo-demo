@@ -3,18 +3,17 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Menu, X, LayoutDashboard, TrendingUp, MessageSquare, Link as LinkIcon, BarChart2, List, Sliders, Bot } from 'lucide-react'
+import { Menu, X, LayoutDashboard, MessageSquare, Link as LinkIcon, BarChart2, List, Sliders, Bot } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 
 const NAV_ITEMS = [
-  { href: '/',            label: 'Home',           icon: LayoutDashboard },
-  { href: '/visibility',  label: 'Visibility',      icon: TrendingUp },
-  { href: '/sentiment',   label: 'Sentiment',       icon: MessageSquare },
-  { href: '/citations',   label: 'Citations',       icon: LinkIcon },
-  { href: '/competitive', label: 'Competitive',     icon: BarChart2 },
-  { href: '/prompts',     label: 'Prompts',         icon: List },
-  { href: '/explorer',    label: 'Metric Explorer', icon: Sliders },
-  { href: '/mcp',         label: 'MCP & Claygent',  icon: Bot },
+  { href: '/',            label: 'Home',            icon: LayoutDashboard },
+  { href: '/citations',   label: 'Citations',        icon: LinkIcon },
+  { href: '/competitive', label: 'Competitive',      icon: BarChart2 },
+  { href: '/sentiment',   label: 'Sentiment',        icon: MessageSquare },
+  { href: '/mcp',         label: 'MCP & Claygent',   icon: Bot },
+  { href: '/prompts',     label: 'Prompts',          icon: List },
+  { href: '/explorer',    label: 'Metric Explorer',  icon: Sliders },
 ]
 
 export default function MobileNav() {

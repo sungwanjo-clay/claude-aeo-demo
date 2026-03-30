@@ -4,7 +4,6 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard,
-  TrendingUp,
   MessageSquare,
   Link as LinkIcon,
   BarChart2,
@@ -16,13 +15,12 @@ import { cn } from '@/lib/utils/cn'
 
 const NAV_ITEMS = [
   { href: '/',            label: 'Home',            icon: LayoutDashboard },
-  { href: '/visibility',  label: 'Visibility',       icon: TrendingUp },
-  { href: '/sentiment',   label: 'Sentiment',        icon: MessageSquare },
   { href: '/citations',   label: 'Citations',        icon: LinkIcon },
   { href: '/competitive', label: 'Competitive',      icon: BarChart2 },
+  { href: '/sentiment',   label: 'Sentiment',        icon: MessageSquare },
+  { href: '/mcp',         label: 'MCP & Claygent',   icon: Bot },
   { href: '/prompts',     label: 'Prompts',          icon: List },
   { href: '/explorer',    label: 'Metric Explorer',  icon: Sliders },
-  { href: '/mcp',         label: 'MCP & Claygent',   icon: Bot },
 ]
 
 export default function Sidebar() {

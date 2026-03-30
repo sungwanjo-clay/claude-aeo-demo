@@ -9,9 +9,13 @@ interface MetricTooltipProps {
 
 export const TOOLTIP_DEFINITIONS: Record<string, string> = {
   'Visibility Score': '% of prompts where Clay was mentioned by the AI platform',
+  'Citation Count': 'Number of responses where clay.com was included as a cited source link',
+  'Avg Position': 'Where Clay first appears among all tools mentioned (1 = first). Lower is better.',
+  'Positive Sentiment': 'Of the responses where Clay was mentioned, what % described Clay positively',
+  'ClayMCP & Agent': 'Number of responses that mention Claygent or Clay MCP as a tool or integration',
+  'Total Prompts': 'Total number of AI prompts evaluated in the selected period across all platforms',
   'Mention Share': "Clay's mentions as a % of all competitor mentions across the same responses",
   'Citation Share': '% of responses where clay.com was included as a cited source',
-  'Avg Position': 'Where Clay first appears among all tools mentioned (1 = first). Lower is better.',
   'Share of Voice': "Clay's share of all competitor mentions. Different from Visibility Score — this measures relative presence, not just whether Clay appeared.",
   'Positive Sentiment %': 'Of the responses where Clay was mentioned, what % described Clay positively',
   'Brand Sentiment Score': '0–100 score of how positively Clay is portrayed. 0 = not mentioned, 76–100 = primary recommendation',
