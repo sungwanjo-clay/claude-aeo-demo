@@ -874,7 +874,7 @@ export interface SentimentThemeSnippet {
   brand_sentiment: string | null
   brand_sentiment_score: number | null
   theme_sentiment: string         // sentiment for this specific theme occurrence
-  theme_snippet: string | null    // the AI-extracted snippet for this theme
+  prompt_text: string | null      // the prompt that triggered this response
   positioning_vs_competitors: string | null
   clay_mention_snippet: string | null
   response_text: string | null
@@ -925,7 +925,7 @@ export async function getCompetitorSentimentVsClay(
   // Pull Clay-mentioned responses with sentiment + themes fields
   let query = sb
     .from('responses')
-    .select('id, platform, run_date, brand_sentiment, brand_sentiment_score, positioning_vs_competitors, clay_mention_snippet, response_text, themes')
+    .select('id, prompt_id, platform, run_date, brand_sentiment, brand_sentiment_score, positioning_vs_competitors, clay_mention_snippet, response_text, themes')
     .gte('run_date', f.startDate)
     .lte('run_date', f.endDate)
     .eq('clay_mentioned', 'Yes')
@@ -938,6 +938,17 @@ export async function getCompetitorSentimentVsClay(
   // For competitor view, filter to co-mentioned responses only
   const relevant = isClay ? data : data.filter(r => compResponseIds!.has(r.id))
   if (!relevant.length) return null
+
+  // Resolve prompt texts
+  const promptIds = [...new Set(relevant.map(r => r.prompt_id).filter(Boolean))]
+  const promptTextMap = new Map<string, string>()
+  if (promptIds.length) {
+    const { data: prompts } = await sb
+      .from('prompts')
+      .select('prompt_id, prompt_text')
+      .in('prompt_id', promptIds)
+    for (const p of prompts ?? []) promptTextMap.set(p.prompt_id, p.prompt_text)
+  }
 
   // Overall sentiment aggregates
   const pos = relevant.filter(r => r.brand_sentiment === 'Positive').length
@@ -972,7 +983,7 @@ export async function getCompetitorSentimentVsClay(
           brand_sentiment: r.brand_sentiment ?? null,
           brand_sentiment_score: r.brand_sentiment_score ?? null,
           theme_sentiment: ts,
-          theme_snippet: t.snippet ?? null,
+          prompt_text: promptTextMap.get(r.prompt_id) ?? null,
           positioning_vs_competitors: r.positioning_vs_competitors ?? null,
           clay_mention_snippet: r.clay_mention_snippet ?? null,
           response_text: r.response_text ?? null,

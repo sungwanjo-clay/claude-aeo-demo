@@ -71,7 +71,7 @@ function FullResponseBlock({ text }: { text: string }) {
 function SnippetCard({ s }: { s: SentimentThemeSnippet }) {
   const [open, setOpen] = useState(false)
   const style = sentimentStyle(s.theme_sentiment)
-  const hasDetail = !!(s.theme_snippet || s.positioning_vs_competitors || s.clay_mention_snippet || s.response_text)
+  const hasDetail = !!(s.prompt_text || s.positioning_vs_competitors || s.clay_mention_snippet || s.response_text)
 
   return (
     <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${style.border}` }}>
@@ -90,10 +90,10 @@ function SnippetCard({ s }: { s: SentimentThemeSnippet }) {
           {s.platform}
         </span>
         <span className="text-[11px] tabular-nums shrink-0" style={{ color: 'rgba(26,25,21,0.45)' }}>{s.run_date}</span>
-        {/* Theme snippet preview */}
-        {s.theme_snippet && (
-          <span className="text-[11px] flex-1 truncate italic" style={{ color: 'rgba(26,25,21,0.6)', minWidth: 0 }}>
-            &ldquo;{stripMarkdown(s.theme_snippet).slice(0, 100)}{s.theme_snippet.length > 100 ? '…' : ''}&rdquo;
+        {/* Prompt preview */}
+        {s.prompt_text && (
+          <span className="text-[11px] flex-1 truncate" style={{ color: 'rgba(26,25,21,0.6)', minWidth: 0 }}>
+            {s.prompt_text.slice(0, 100)}{s.prompt_text.length > 100 ? '…' : ''}
           </span>
         )}
         <div className="flex-1" />
@@ -107,6 +107,17 @@ function SnippetCard({ s }: { s: SentimentThemeSnippet }) {
       {/* Expanded */}
       {open && (
         <div className="px-3 pb-3 pt-2 space-y-2" style={{ borderTop: `1px solid ${style.border}` }}>
+          {s.prompt_text && (
+            <div className="rounded px-2.5 py-2"
+              style={{ background: 'rgba(26,25,21,0.04)', border: '1px solid rgba(26,25,21,0.1)' }}>
+              <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: 'rgba(26,25,21,0.4)' }}>
+                Prompt
+              </p>
+              <p className="text-[12px] leading-relaxed" style={{ color: 'var(--clay-black)' }}>
+                {s.prompt_text}
+              </p>
+            </div>
+          )}
           {s.positioning_vs_competitors && (
             <div className="rounded px-2.5 py-2"
               style={{ background: 'rgba(74,90,255,0.05)', border: '1px solid rgba(74,90,255,0.18)' }}>
