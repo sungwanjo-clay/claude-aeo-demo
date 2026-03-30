@@ -20,6 +20,34 @@ function stripMarkdown(text: string): string {
     .replace(/^\s*[-*>]\s+/gm, '').replace(/\|\s*/g, ' ').replace(/\s{2,}/g, ' ').trim()
 }
 
+// ── Full response expandable block ─────────────────────────────────────────────
+function FullResponseBlock({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  const cleaned = stripMarkdown(text)
+  const preview = cleaned.slice(0, 200)
+  const hasMore = cleaned.length > 200
+
+  return (
+    <div className="rounded-lg px-3 py-2.5 mt-2"
+      style={{ background: 'rgba(26,25,21,0.03)', border: '1px solid rgba(26,25,21,0.07)' }}>
+      <p className="text-[10px] font-bold uppercase tracking-wider mb-1.5"
+        style={{ color: 'rgba(26,25,21,0.45)' }}>Full AI Response</p>
+      <p className="text-[12px] leading-relaxed" style={{ color: 'rgba(26,25,21,0.75)' }}>
+        {open ? cleaned : preview}{!open && hasMore ? '…' : ''}
+      </p>
+      {hasMore && (
+        <button
+          onClick={e => { e.stopPropagation(); setOpen(v => !v) }}
+          className="mt-1.5 text-[10px] font-bold uppercase tracking-wider hover:opacity-70 transition-opacity"
+          style={{ color: 'rgba(26,25,21,0.45)' }}
+        >
+          {open ? 'Show less ↑' : 'Show full response ↓'}
+        </button>
+      )}
+    </div>
+  )
+}
+
 function DeltaChip({ delta }: { delta: number }) {
   const pos = delta >= 0
   return (
@@ -34,12 +62,13 @@ function DeltaChip({ delta }: { delta: number }) {
 // ── Response row ──────────────────────────────────────────────────────────────
 function CompResponseRow({ r, selected }: { r: PMMCompPromptRow['responses'][0]; selected: string }) {
   const [open, setOpen] = useState(false)
+  const hasDetail = !!(r.clay_mention_snippet || r.response_text)
   return (
     <div style={{ borderBottom: '1px solid rgba(26,25,21,0.04)', background: open ? 'rgba(26,25,21,0.01)' : 'transparent' }}>
       <div
         className="grid items-center gap-2 px-3 py-2 cursor-pointer hover:bg-[rgba(26,25,21,0.02)]"
         style={{ gridTemplateColumns: '80px 76px 72px 72px 1fr 16px' }}
-        onClick={() => setOpen(v => !v)}
+        onClick={() => hasDetail && setOpen(v => !v)}
       >
         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-center"
           style={{ background: getPlatformColor(r.platform) + '20', color: getPlatformColor(r.platform) }}>
@@ -57,18 +86,21 @@ function CompResponseRow({ r, selected }: { r: PMMCompPromptRow['responses'][0];
           Clay: {r.clay_mentioned === 'Yes' ? 'Yes' : 'No'}
         </span>
         <div />
-        {r.clay_mention_snippet
+        {hasDetail
           ? open ? <ChevronDown size={10} style={{ color: 'rgba(26,25,21,0.35)' }} /> : <ChevronRight size={10} style={{ color: 'rgba(26,25,21,0.35)' }} />
           : null}
       </div>
-      {open && r.clay_mention_snippet && (
-        <div className="px-3 pb-2">
-          <div className="rounded px-2.5 py-2" style={{ background: 'rgba(200,240,64,0.1)', border: '1px solid rgba(200,240,64,0.3)' }}>
-            <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: 'rgba(26,25,21,0.45)' }}>Clay mention snippet</p>
-            <p className="text-[11px] leading-relaxed" style={{ color: 'var(--clay-black)' }}>
-              &ldquo;{stripMarkdown(r.clay_mention_snippet)}&rdquo;
-            </p>
-          </div>
+      {open && (
+        <div className="px-3 pb-3 space-y-2">
+          {r.clay_mention_snippet && (
+            <div className="rounded px-2.5 py-2" style={{ background: 'rgba(200,240,64,0.1)', border: '1px solid rgba(200,240,64,0.3)' }}>
+              <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: 'rgba(26,25,21,0.45)' }}>Clay mention snippet</p>
+              <p className="text-[11px] leading-relaxed" style={{ color: 'var(--clay-black)' }}>
+                &ldquo;{stripMarkdown(r.clay_mention_snippet)}&rdquo;
+              </p>
+            </div>
+          )}
+          {r.response_text && <FullResponseBlock text={r.response_text} />}
         </div>
       )}
     </div>

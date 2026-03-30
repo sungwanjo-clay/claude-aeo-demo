@@ -15,16 +15,18 @@ import {
   getClayVisibilityTimeseries,
   getWinnersAndLosers,
   getCompetitorCitationRate,
-  getCompetitorCitationsByType,
+  getCompetitorCitationsFlat,
   getPromptsForCitation,
   getCompetitorPMMComparison,
   getCompetitorPMMPromptDrilldown,
+  getCompetitorSentimentVsClay,
 } from '@/lib/queries/competitive'
 import type {
-  CitationTypeGroup,
+  CitationFlatItem,
   CitationPromptRow,
   PMMCompRow,
   PMMCompPromptRow,
+  SentimentVsClayData,
 } from '@/lib/queries/competitive'
 import KpiCard from '@/components/cards/KpiCard'
 import HeatmapMatrix from '@/components/charts/HeatmapMatrix'
@@ -33,6 +35,7 @@ import { getPlatformColor, CHART_COLORS } from '@/lib/utils/colors'
 import { formatShortDate } from '@/lib/utils/formatters'
 import CompCitationProfile from '@/components/competitive/CompCitationProfile'
 import CompPMMComparison from '@/components/competitive/CompPMMComparison'
+import CompSentimentVsClay from '@/components/competitive/CompSentimentVsClay'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
@@ -89,8 +92,10 @@ export default function CompetitivePage() {
   const [tsData, setTsData] = useState<{ date: string; [k: string]: string | number }[]>([])
   const [movers, setMovers] = useState<WinnerLoser[]>([])
 
-  const [citGroups, setCitGroups] = useState<CitationTypeGroup[]>([])
+  const [citations, setCitations] = useState<CitationFlatItem[]>([])
   const [pmmRows, setPmmRows] = useState<PMMCompRow[]>([])
+  const [sentimentData, setSentimentData] = useState<SentimentVsClayData | null>(null)
+  const [loadingSentiment, setLoadingSentiment] = useState(true)
 
   // Citation drill-down state
   const [citPromptCache, setCitPromptCache] = useState<Record<string, CitationPromptRow[]>>({})
@@ -112,6 +117,7 @@ export default function CompetitivePage() {
   // Reset per-competitor caches on selection change
   useEffect(() => {
     setCitPromptCache({})
+    setSentimentData(null)
   }, [selected, f.startDate, f.endDate])
 
   // Effect 1: fast — KPIs, timeseries, movers, heatmap
@@ -167,17 +173,21 @@ export default function CompetitivePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, selected])
 
-  // Effect 2: slow — citation profile, PMM comparison
+  // Effect 2: slow — citation profile, PMM comparison, sentiment
   useEffect(() => {
     if (!selected) return
     setLoadingExtra(true)
+    setLoadingSentiment(true)
     Promise.all([
-      getCompetitorCitationsByType(supabase, f, selected),
+      getCompetitorCitationsFlat(supabase, f, selected),
       getCompetitorPMMComparison(supabase, f, selected),
-    ]).then(([cit, pmm]) => {
-      setCitGroups(cit as CitationTypeGroup[])
+      getCompetitorSentimentVsClay(supabase, f, selected),
+    ]).then(([cit, pmm, sentiment]) => {
+      setCitations(cit as CitationFlatItem[])
       setPmmRows(pmm as PMMCompRow[])
+      setSentimentData(sentiment as SentimentVsClayData | null)
       setLoadingExtra(false)
+      setLoadingSentiment(false)
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, selected])
@@ -377,7 +387,14 @@ export default function CompetitivePage() {
         </div>
       </div>
 
-      {/* Citation Profile — ABOVE PMM topics */}
+      {/* Sentiment vs Clay */}
+      <CompSentimentVsClay
+        data={sentimentData}
+        selected={selected}
+        loading={loadingSentiment}
+      />
+
+      {/* Citation Profile */}
       {loadingExtra ? (
         <div style={CARD} className="p-4">
           <div style={LABEL} className="mb-3">Citation Profile — {selected}</div>
@@ -385,7 +402,7 @@ export default function CompetitivePage() {
         </div>
       ) : (
         <CompCitationProfile
-          groups={citGroups}
+          citations={citations}
           selected={selected}
           onLoadPrompts={handleLoadCitationPrompts}
           promptCache={citPromptCache}
@@ -405,16 +422,6 @@ export default function CompetitivePage() {
           selected={selected}
           onDrilldown={handlePMMDrilldown}
         />
-      )}
-
-      {/* Co-cited domains (competitors only) */}
-      {!isClay && !loadingExtra && (
-        <div style={CARD} className="p-4">
-          <div style={LABEL} className="mb-1">Domains Co-cited Alongside {selected}</div>
-          <p className="text-xs" style={{ color: 'rgba(26,25,21,0.45)' }}>
-            These domains appear in the same AI responses that mention {selected} — indicating shared authority in the space.
-          </p>
-        </div>
       )}
 
       {/* Platform Heatmap */}

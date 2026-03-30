@@ -555,12 +555,60 @@ export async function getCompetitorCitationsByType(
 
 // ── Prompts/responses that drove a given citation ────────────────────────────
 
+// ── Flat citation list (no type grouping) ────────────────────────────────────
+
+export interface CitationFlatItem {
+  url: string
+  title: string | null
+  domain: string
+  count: number
+  citation_type: string
+  response_ids: string[]
+}
+
+export async function getCompetitorCitationsFlat(
+  sb: SupabaseClient,
+  f: FilterParams,
+  competitor: string
+): Promise<CitationFlatItem[]> {
+  const slug = domainSlug(competitor)
+
+  let query = sb.from('citation_domains')
+    .select('url, title, domain, citation_type, response_id')
+    .gte('run_date', f.startDate)
+    .lte('run_date', f.endDate)
+    .ilike('domain', `%${slug}%`)
+
+  if (f.platforms?.length) query = query.in('platform', f.platforms)
+
+  const { data } = await query
+  if (!data?.length) return []
+
+  const urlMap = new Map<string, CitationFlatItem>()
+  for (const row of data) {
+    const url = row.url ?? ''
+    if (!url) continue
+    const cur = urlMap.get(url) ?? {
+      url, title: row.title ?? null, domain: (row.domain ?? '').toLowerCase(),
+      count: 0, citation_type: row.citation_type ?? 'Other', response_ids: [],
+    }
+    cur.count++
+    if (row.response_id) cur.response_ids.push(row.response_id)
+    urlMap.set(url, cur)
+  }
+
+  return Array.from(urlMap.values()).sort((a, b) => b.count - a.count).slice(0, 50)
+}
+
+// ── Prompts/responses that drove a given citation ────────────────────────────
+
 export interface CitationResponseRow {
   id: string
   platform: string
   run_date: string
   clay_mentioned: string | null
   clay_mention_snippet: string | null
+  response_text: string | null
 }
 
 export interface CitationPromptRow {
@@ -577,7 +625,7 @@ export async function getPromptsForCitation(
 
   const { data: responses } = await sb
     .from('responses')
-    .select('id, prompt_id, platform, run_date, clay_mentioned, clay_mention_snippet')
+    .select('id, prompt_id, platform, run_date, clay_mentioned, clay_mention_snippet, response_text')
     .in('id', responseIds.slice(0, 300))
 
   if (!responses?.length) return []
@@ -603,6 +651,7 @@ export async function getPromptsForCitation(
       run_date: (r.run_date ?? '').substring(0, 10),
       clay_mentioned: r.clay_mentioned ?? null,
       clay_mention_snippet: r.clay_mention_snippet ?? null,
+      response_text: r.response_text ?? null,
     })
     promptMap.set(pid, cur)
   }
@@ -676,6 +725,7 @@ export interface PMMCompResponseRow {
   clay_mentioned: string | null
   competitor_mentioned: boolean
   clay_mention_snippet: string | null
+  response_text: string | null
 }
 
 export interface PMMCompPromptRow {
@@ -698,7 +748,7 @@ export async function getCompetitorPMMPromptDrilldown(
 
   const { data: responses } = await sb
     .from('responses')
-    .select('id, prompt_id, platform, run_date, clay_mentioned, clay_mention_snippet')
+    .select('id, prompt_id, platform, run_date, clay_mentioned, clay_mention_snippet, response_text')
     .gte('run_date', f.startDate)
     .lte('run_date', f.endDate)
     .eq('pmm_use_case', pmmUseCase)
@@ -742,6 +792,7 @@ export async function getCompetitorPMMPromptDrilldown(
       clay_mentioned: r.clay_mentioned ?? null,
       competitor_mentioned: compMentioned,
       clay_mention_snippet: r.clay_mention_snippet ?? null,
+      response_text: r.response_text ?? null,
     })
     promptMap.set(pid, cur)
   }
@@ -811,5 +862,95 @@ export async function getClaygentMcpStats(
         prompt_text: '',
         run_date: r.run_date?.split('T')[0] ?? '',
       })),
+  }
+}
+
+// ── Sentiment vs Clay ─────────────────────────────────────────────────────────
+
+export interface SentimentCoMentionSnippet {
+  id: string
+  platform: string
+  run_date: string
+  brand_sentiment: string | null
+  brand_sentiment_score: number | null
+  positioning_vs_competitors: string | null
+  clay_mention_snippet: string | null
+  response_text: string | null
+}
+
+export interface SentimentVsClayData {
+  coMentionCount: number
+  clayPositivePct: number
+  clayNeutralPct: number
+  clayNegativePct: number
+  clayAvgScore: number | null
+  snippets: SentimentCoMentionSnippet[]
+}
+
+export async function getCompetitorSentimentVsClay(
+  sb: SupabaseClient,
+  f: FilterParams,
+  competitor: string
+): Promise<SentimentVsClayData | null> {
+  const isClay = competitor === 'Clay'
+
+  // Get competitor's response_ids for co-mention filtering
+  let compResponseIds: Set<string> | null = null
+  if (!isClay) {
+    const { data: rcData } = await sb
+      .from('response_competitors')
+      .select('response_id')
+      .eq('competitor_name', competitor)
+      .gte('run_date', f.startDate)
+      .lte('run_date', f.endDate)
+    if (!rcData?.length) return null
+    compResponseIds = new Set(rcData.map(r => r.response_id))
+  }
+
+  // Pull Clay-mentioned responses with sentiment fields
+  let query = sb
+    .from('responses')
+    .select('id, platform, run_date, brand_sentiment, brand_sentiment_score, positioning_vs_competitors, clay_mention_snippet, response_text')
+    .gte('run_date', f.startDate)
+    .lte('run_date', f.endDate)
+    .eq('clay_mentioned', 'Yes')
+
+  if (f.platforms?.length) query = query.in('platform', f.platforms)
+
+  const { data } = await query
+  if (!data?.length) return null
+
+  // For competitor view, filter to co-mentioned responses only
+  const relevant = isClay ? data : data.filter(r => compResponseIds!.has(r.id))
+  if (!relevant.length) return null
+
+  const pos = relevant.filter(r => r.brand_sentiment === 'Positive').length
+  const neu = relevant.filter(r => r.brand_sentiment === 'Neutral').length
+  const neg = relevant.filter(r => r.brand_sentiment === 'Negative').length
+  const scores = relevant.map(r => r.brand_sentiment_score).filter((s): s is number => s != null)
+  const avgScore = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null
+
+  const snippets: SentimentCoMentionSnippet[] = relevant
+    .filter(r => r.positioning_vs_competitors || r.clay_mention_snippet)
+    .map(r => ({
+      id: r.id,
+      platform: r.platform ?? '',
+      run_date: (r.run_date ?? '').substring(0, 10),
+      brand_sentiment: r.brand_sentiment ?? null,
+      brand_sentiment_score: r.brand_sentiment_score ?? null,
+      positioning_vs_competitors: r.positioning_vs_competitors ?? null,
+      clay_mention_snippet: r.clay_mention_snippet ?? null,
+      response_text: r.response_text ?? null,
+    }))
+    .sort((a, b) => (b.brand_sentiment_score ?? 0) - (a.brand_sentiment_score ?? 0))
+    .slice(0, 60)
+
+  return {
+    coMentionCount: relevant.length,
+    clayPositivePct: relevant.length > 0 ? (pos / relevant.length) * 100 : 0,
+    clayNeutralPct: relevant.length > 0 ? (neu / relevant.length) * 100 : 0,
+    clayNegativePct: relevant.length > 0 ? (neg / relevant.length) * 100 : 0,
+    clayAvgScore: avgScore,
+    snippets,
   }
 }
