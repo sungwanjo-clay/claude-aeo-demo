@@ -238,10 +238,7 @@ export default function CompSentimentVsClay({ data, selected, loading, headerSlo
   const CARD = { background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }
   const isClay = selected === 'Clay'
 
-  const heading = isClay ? 'Clay Sentiment by Theme' : `Sentiment vs ${selected} — by Theme`
-  const subtitle = isClay
-    ? 'How AI models talk about Clay, grouped by the themes they associate with the brand.'
-    : `Clay's positioning in the ${data?.coMentionCount?.toLocaleString() ?? '…'} responses where both Clay and ${selected} appear — grouped by theme. Negative-dominant themes surface first.`
+  const heading = isClay ? 'Clay Sentiment by Theme' : `Clay Sentiment — in responses that mention ${selected}`
 
   if (loading) {
     return (
@@ -262,9 +259,8 @@ export default function CompSentimentVsClay({ data, selected, loading, headerSlo
       <div style={CARD} className="p-4">
         {headerSlot}
         <div style={LABEL} className="mb-1">{heading}</div>
-        <p className="text-xs mb-4" style={{ color: 'rgba(26,25,21,0.45)' }}>{subtitle}</p>
         <div className="flex items-center justify-center py-10 text-[13px]" style={{ color: 'rgba(26,25,21,0.35)' }}>
-          {isClay ? 'No theme data available' : `No co-mention theme data found for ${selected}`}
+          {isClay ? 'No theme data available' : `No responses found mentioning both Clay and ${selected}`}
         </div>
       </div>
     )
@@ -273,22 +269,53 @@ export default function CompSentimentVsClay({ data, selected, loading, headerSlo
   const visibleThemes = showAllThemes ? data.themeGroups : data.themeGroups.slice(0, THEME_LIMIT)
   const hasMore = data.themeGroups.length > THEME_LIMIT
 
+  // Count positive-dominant vs negative-dominant themes
+  const posThemes = data.themeGroups.filter(g => g.dominantSentiment === 'Positive').length
+  const negThemes = data.themeGroups.filter(g => g.dominantSentiment === 'Negative').length
+
   return (
     <div style={CARD} className="p-4">
       {headerSlot}
       <div style={LABEL} className="mb-1">{heading}</div>
-      <p className="text-xs mb-4" style={{ color: 'rgba(26,25,21,0.45)' }}>{subtitle}</p>
 
-      {/* Overall summary bar */}
-      <div className="flex items-center gap-3 mb-5 p-3 rounded-lg"
-        style={{ background: 'rgba(26,25,21,0.03)', border: '1px solid rgba(26,25,21,0.07)' }}>
+      {/* Context explanation for competitor mode */}
+      {!isClay && (
+        <div className="mb-4 p-3 rounded-lg" style={{ background: 'rgba(26,25,21,0.03)', border: '1px solid rgba(26,25,21,0.07)' }}>
+          <p className="text-[12px]" style={{ color: 'rgba(26,25,21,0.65)' }}>
+            <span className="font-bold" style={{ color: 'var(--clay-black)' }}>{data.coMentionCount?.toLocaleString() ?? '…'} AI responses</span>
+            {' '}mention both <span className="font-bold" style={{ color: 'var(--clay-black)' }}>Clay</span> and <span className="font-bold" style={{ color: '#4A5AFF' }}>{selected}</span>.
+            The themes below show how Clay is talked about in those shared contexts.
+          </p>
+          {/* Win/loss summary */}
+          <div className="flex items-center gap-3 mt-2">
+            <div className="flex items-center gap-1.5 text-[11px] font-bold px-2 py-1 rounded"
+              style={{ background: 'rgba(200,240,64,0.2)', color: '#3a6200' }}>
+              <span>↑</span>
+              <span>{posThemes} positive themes</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[11px] font-bold px-2 py-1 rounded"
+              style={{ background: 'rgba(229,54,42,0.08)', color: 'var(--clay-pomegranate)' }}>
+              <span>↓</span>
+              <span>{negThemes} negative themes</span>
+            </div>
+            <span className="text-[11px]" style={{ color: 'rgba(26,25,21,0.4)' }}>
+              {data.themeGroups.length - posThemes - negThemes} neutral
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Overall sentiment bar */}
+      <div className="flex items-center gap-3 mb-4 p-3 rounded-lg"
+        style={{ background: isClay ? 'rgba(26,25,21,0.03)' : 'rgba(200,240,64,0.06)', border: '1px solid rgba(26,25,21,0.07)' }}>
+        <div className="shrink-0 text-[10px] font-bold uppercase tracking-wider" style={{ color: 'rgba(26,25,21,0.45)', width: '32px' }}>Clay</div>
         <div className="flex-1">
           <SentimentBar pos={data.clayPositivePct} neu={data.clayNeutralPct} neg={data.clayNegativePct} height={10} />
         </div>
-        <div className="flex items-center gap-4 shrink-0 text-[11px]">
-          <span style={{ color: '#3a6200', fontWeight: 700 }}>{data.clayPositivePct.toFixed(0)}% Positive</span>
-          <span style={{ color: 'rgba(26,25,21,0.4)', fontWeight: 600 }}>{data.clayNeutralPct.toFixed(0)}% Neutral</span>
-          <span style={{ color: 'var(--clay-pomegranate)', fontWeight: 700 }}>{data.clayNegativePct.toFixed(0)}% Negative</span>
+        <div className="flex items-center gap-3 shrink-0 text-[11px]">
+          <span style={{ color: '#3a6200', fontWeight: 700 }}>{data.clayPositivePct.toFixed(0)}%</span>
+          <span style={{ color: 'rgba(26,25,21,0.4)', fontWeight: 600 }}>{data.clayNeutralPct.toFixed(0)}%</span>
+          <span style={{ color: 'var(--clay-pomegranate)', fontWeight: 700 }}>{data.clayNegativePct.toFixed(0)}%</span>
           {data.clayAvgScore != null && (
             <span style={{ color: 'rgba(26,25,21,0.4)' }}>
               Avg <span style={{ color: 'var(--clay-black)', fontWeight: 700 }}>{data.clayAvgScore.toFixed(1)}/10</span>
@@ -297,10 +324,10 @@ export default function CompSentimentVsClay({ data, selected, loading, headerSlo
         </div>
       </div>
 
-      {/* Legend */}
+      {/* Legend + count */}
       <div className="flex items-center gap-4 mb-3">
         <span style={LABEL}>
-          Themes — showing {visibleThemes.length} of {data.themeGroups.length}
+          {visibleThemes.length} of {data.themeGroups.length} themes
         </span>
         <div className="flex items-center gap-3 text-[10px] ml-auto" style={{ color: 'rgba(26,25,21,0.4)' }}>
           <span className="flex items-center gap-1">
@@ -330,7 +357,7 @@ export default function CompSentimentVsClay({ data, selected, loading, headerSlo
           style={{ borderTop: '1px solid rgba(26,25,21,0.06)', color: 'rgba(26,25,21,0.4)', background: 'none', border: 'none', cursor: 'pointer' }}
         >
           {showAllThemes
-            ? 'Show top 20 themes ↑'
+            ? 'Show top 10 themes ↑'
             : `Show all ${data.themeGroups.length} themes ↓`}
         </button>
       )}

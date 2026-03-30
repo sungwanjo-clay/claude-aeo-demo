@@ -3,7 +3,7 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useGlobalFilters } from '@/context/GlobalFilters'
 import { supabase } from '@/lib/supabase/client'
 import {
@@ -198,7 +198,8 @@ export default function CompetitivePage() {
   // Competitor list + multi-select
   const [competitors, setCompetitors] = useState<string[]>([])
   const [selectedComps, setSelectedComps] = useState<string[]>([])
-  const [showAllChips, setShowAllChips] = useState(false)
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const dropdownRef = useRef(null)
   // activeComp: which competitor is shown in drill-down sections (Citation, PMM, Sentiment)
   const [activeComp, setActiveComp] = useState<string>('')
 
@@ -208,9 +209,9 @@ export default function CompetitivePage() {
   const [heatmap, setHeatmap] = useState<HeatmapCell[]>([])
   const [movers, setMovers] = useState<WinnerLoser[]>([])
 
-  // Drill-down data for activeComp
+  // Drill-down data
   const [citations, setCitations] = useState<CitationFlatItem[]>([])
-  const [pmmRows, setPmmRows] = useState<PMMCompRow[]>([])
+  const [pmmRowsMap, setPmmRowsMap] = useState<Record<string, PMMCompRow[]>>({})
   const [sentimentData, setSentimentData] = useState<SentimentVsClayData | null>(null)
 
   // Citation drill-down cache
@@ -247,6 +248,18 @@ export default function CompetitivePage() {
       return [...prev, comp]
     })
   }
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!dropdownOpen) return
+    function handleOutside(e: MouseEvent) {
+      if (dropdownRef.current && !(dropdownRef.current as HTMLElement).contains(e.target as Node)) {
+        setDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [dropdownOpen])
 
   // Fast effect: KPIs + timeseries + heatmap + movers for all selectedComps
   useEffect(() => {
@@ -328,7 +341,7 @@ export default function CompetitivePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, selectedComps.join(',')])
 
-  // Slow effect: citation + PMM + sentiment for activeComp
+  // Slow effect A: citations + sentiment for activeComp
   useEffect(() => {
     if (!activeComp) return
     setLoadingExtra(true)
@@ -336,11 +349,9 @@ export default function CompetitivePage() {
     setCitPromptCache({})
     Promise.all([
       getCompetitorCitationsFlat(supabase, f, activeComp).catch(() => []),
-      getCompetitorPMMComparison(supabase, f, activeComp).catch(() => []),
       getCompetitorSentimentVsClay(supabase, f, activeComp).catch(() => null),
-    ]).then(([cit, pmm, sentiment]) => {
+    ]).then(([cit, sentiment]) => {
       setCitations(cit as CitationFlatItem[])
-      setPmmRows(pmm as PMMCompRow[])
       setSentimentData(sentiment as SentimentVsClayData | null)
       setLoadingExtra(false)
       setLoadingSentiment(false)
@@ -350,6 +361,21 @@ export default function CompetitivePage() {
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, activeComp])
+
+  // Slow effect B: PMM for ALL selectedComps (so we can show multi-column table)
+  useEffect(() => {
+    if (selectedComps.length === 0) return
+    Promise.all(
+      selectedComps.map(comp =>
+        getCompetitorPMMComparison(supabase, f, comp).catch(() => []).then(rows => ({ comp, rows }))
+      )
+    ).then(results => {
+      const newMap: Record<string, PMMCompRow[]> = {}
+      for (const { comp, rows } of results) newMap[comp] = rows as PMMCompRow[]
+      setPmmRowsMap(newMap)
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, selectedComps.join(',')])
 
   // Citation drill-down
   const handleLoadCitationPrompts = useCallback(async (url: string, responseIds: string[]) => {
@@ -381,7 +407,11 @@ export default function CompetitivePage() {
   })
   const limitedComps = showAllHeatmap ? heatmapComps : heatmapComps.slice(0, 50)
   const filteredHeatmap = heatmap.filter(d => limitedComps.includes(d.competitor))
-  const visibleChips = showAllChips ? competitors : competitors.slice(0, CHIPS_LIMIT)
+
+  // Dropdown trigger label
+  const triggerLabel = selectedComps.length === 1
+    ? selectedComps[0]
+    : `${selectedComps[0]} + ${selectedComps.length - 1} more`
 
   // Tab strip for drill-down sections
   const drillTabs = isMulti ? (
@@ -403,62 +433,104 @@ export default function CompetitivePage() {
         <div className="mt-1">
           <div className="flex items-center gap-2 mb-2">
             <span style={LABEL}>Compare domains</span>
-            {isMulti && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded"
-                style={{ background: 'rgba(26,25,21,0.06)', color: 'rgba(26,25,21,0.45)' }}>
-                {selectedComps.length} selected
-              </span>
-            )}
             {selectedComps.length >= MAX_SELECT && (
-              <span className="text-[10px]" style={{ color: 'rgba(26,25,21,0.4)' }}>
-                · max {MAX_SELECT}
-              </span>
+              <span className="text-[10px]" style={{ color: 'rgba(26,25,21,0.4)' }}>Max {MAX_SELECT} selected</span>
             )}
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {visibleChips.map((comp) => {
-              const isSelected = selectedComps.includes(comp)
-              const isClay = comp === 'Clay'
-              const nonClayIdx = nonClaySelected.indexOf(comp)
-              const color = isClay ? null : (nonClayIdx >= 0 ? COMP_COLORS[nonClayIdx % COMP_COLORS.length] : null)
-              const maxed = !isSelected && selectedComps.length >= MAX_SELECT
-              const disabled = isSelected && selectedComps.length === 1
-              return (
-                <button
-                  key={comp}
-                  onClick={() => !disabled && !maxed && toggleComp(comp)}
-                  className="text-[11px] font-semibold px-2.5 py-1 rounded-full transition-all"
-                  style={{
-                    background: isSelected
-                      ? (isClay ? 'var(--clay-lime)' : color ?? 'var(--clay-black)')
-                      : 'rgba(26,25,21,0.06)',
-                    color: isSelected
-                      ? (isClay ? 'var(--clay-black)' : 'white')
-                      : maxed ? 'rgba(26,25,21,0.25)' : 'rgba(26,25,21,0.6)',
-                    border: isSelected
-                      ? `1.5px solid ${isClay ? 'rgba(200,240,64,0.6)' : (color ?? 'var(--clay-black)')}`
-                      : '1.5px solid transparent',
-                    cursor: disabled || maxed ? 'not-allowed' : 'pointer',
-                    opacity: maxed ? 0.5 : 1,
-                  }}
-                >
-                  {comp}
-                </button>
-              )
-            })}
-            {competitors.length > CHIPS_LIMIT && (
-              <button
-                onClick={() => setShowAllChips(v => !v)}
-                className="text-[11px] font-semibold px-2.5 py-1 rounded-full transition-colors"
+
+          {/* Excel-style dropdown */}
+          <div ref={dropdownRef} className="relative inline-block">
+            <button
+              onClick={() => setDropdownOpen(v => !v)}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] font-semibold transition-colors"
+              style={{
+                background: '#FFFFFF',
+                border: '1px solid rgba(26,25,21,0.18)',
+                color: 'var(--clay-black)',
+                minWidth: '220px',
+                cursor: 'pointer',
+                boxShadow: dropdownOpen ? '0 0 0 2px rgba(26,25,21,0.1)' : 'none',
+              }}
+            >
+              <span className="flex-1 text-left">{triggerLabel}</span>
+              <span style={{ color: 'rgba(26,25,21,0.4)', fontSize: '10px', transform: dropdownOpen ? 'rotate(180deg)' : 'none', display: 'inline-block', transition: 'transform 0.15s' }}>▼</span>
+            </button>
+
+            {dropdownOpen && (
+              <div
+                className="absolute top-full left-0 mt-1 z-50 rounded-lg overflow-hidden"
                 style={{
-                  background: 'rgba(26,25,21,0.03)',
-                  color: 'rgba(26,25,21,0.4)',
-                  border: '1.5px dashed rgba(26,25,21,0.15)',
-                  cursor: 'pointer',
+                  background: '#FFFFFF',
+                  border: '1px solid var(--clay-border)',
+                  minWidth: '260px',
+                  maxHeight: '340px',
+                  overflowY: 'auto',
+                  boxShadow: '0 8px 24px rgba(26,25,21,0.12)',
                 }}
               >
-                {showAllChips ? 'Show less ↑' : `+${competitors.length - CHIPS_LIMIT} more ↓`}
-              </button>
+                {/* Clay always at top */}
+                {competitors.filter(c => c === 'Clay').map(comp => {
+                  const checked = selectedComps.includes(comp)
+                  const disabled = checked && selectedComps.length === 1
+                  const mover = movers.find(m => m.competitor_name === comp)
+                  const kpi = kpisMap[comp]
+                  return (
+                    <label key={comp}
+                      className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-[rgba(26,25,21,0.04)] transition-colors"
+                      style={{ borderBottom: '1px solid rgba(26,25,21,0.08)' }}
+                    >
+                      <input type="checkbox" checked={checked} disabled={disabled}
+                        onChange={() => !disabled && toggleComp(comp)}
+                        style={{ width: '14px', height: '14px', accentColor: '#C8F040', cursor: disabled ? 'not-allowed' : 'pointer' }}
+                        onClick={e => e.stopPropagation()}
+                      />
+                      <span className="flex-1 text-[13px] font-semibold" style={{ color: 'var(--clay-black)' }}>
+                        {comp}
+                        <span className="ml-1.5 text-[9px] font-bold px-1 py-0.5 rounded" style={{ background: 'var(--clay-lime)', color: 'var(--clay-black)' }}>You</span>
+                      </span>
+                      {kpi?.visibilityScore != null && (
+                        <span className="text-[12px] font-bold tabular-nums" style={{ color: 'rgba(26,25,21,0.5)' }}>{kpi.visibilityScore.toFixed(1)}%</span>
+                      )}
+                      {mover?.delta != null && (
+                        <span className="text-[10px] font-bold" style={{ color: mover.delta >= 0 ? '#3a6200' : 'var(--clay-pomegranate)', minWidth: '36px', textAlign: 'right' }}>
+                          {mover.delta >= 0 ? '↑' : '↓'}{Math.abs(mover.delta).toFixed(1)}%
+                        </span>
+                      )}
+                    </label>
+                  )
+                })}
+
+                {/* Alphabetical non-Clay competitors */}
+                {competitors.filter(c => c !== 'Clay').map(comp => {
+                  const checked = selectedComps.includes(comp)
+                  const disabled = checked && selectedComps.length === 1
+                  const maxed = !checked && selectedComps.length >= MAX_SELECT
+                  const mover = movers.find(m => m.competitor_name === comp)
+                  const kpi = kpisMap[comp]
+                  return (
+                    <label key={comp}
+                      className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-[rgba(26,25,21,0.04)] transition-colors"
+                      style={{ opacity: maxed ? 0.4 : 1, borderBottom: '1px solid rgba(26,25,21,0.04)' }}
+                    >
+                      <input type="checkbox" checked={checked}
+                        disabled={disabled || (maxed && !checked)}
+                        onChange={() => !disabled && !maxed && toggleComp(comp)}
+                        style={{ width: '14px', height: '14px', accentColor: 'var(--clay-black)', cursor: disabled || maxed ? 'not-allowed' : 'pointer' }}
+                        onClick={e => e.stopPropagation()}
+                      />
+                      <span className="flex-1 text-[13px] font-semibold" style={{ color: 'var(--clay-black)' }}>{comp}</span>
+                      {kpi?.visibilityScore != null && (
+                        <span className="text-[12px] font-bold tabular-nums" style={{ color: 'rgba(26,25,21,0.5)' }}>{kpi.visibilityScore.toFixed(1)}%</span>
+                      )}
+                      {mover?.delta != null && (
+                        <span className="text-[10px] font-bold" style={{ color: mover.delta >= 0 ? '#3a6200' : 'var(--clay-pomegranate)', minWidth: '36px', textAlign: 'right' }}>
+                          {mover.delta >= 0 ? '↑' : '↓'}{Math.abs(mover.delta).toFixed(1)}%
+                        </span>
+                      )}
+                    </label>
+                  )
+                })}
+              </div>
             )}
           </div>
         </div>
@@ -551,70 +623,47 @@ export default function CompetitivePage() {
           )}
         </div>
 
-        {/* Static panel: Top Competitors + Biggest Losers + Emerging */}
-        <div style={CARD} className="p-4 flex flex-col gap-0">
-          <div style={LABEL} className="mb-2">Top Competitors</div>
-          {loading ? <SkeletonCard /> : (
-            <div className="mb-4">
-              {topCompetitors.map((w, i) => (
-                <div key={w.competitor_name} className="flex items-center gap-2 py-1.5"
-                  style={{ borderBottom: '1px solid rgba(26,25,21,0.05)' }}>
-                  <span style={{ color: 'rgba(26,25,21,0.3)', fontSize: '11px', fontWeight: 700, width: '16px' }}>{i + 1}</span>
-                  <button
-                    className="flex-1 text-left text-[13px] font-semibold truncate hover:opacity-70 transition-opacity"
-                    style={{ color: 'var(--clay-black)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
-                    onClick={() => !selectedComps.includes(w.competitor_name) && selectedComps.length < MAX_SELECT && toggleComp(w.competitor_name)}
-                    title={selectedComps.includes(w.competitor_name) ? 'Already in comparison' : 'Click to add to comparison'}
-                  >
-                    {w.competitor_name}
-                    {w.isNew && (
-                      <span className="ml-1.5" style={{ background: 'var(--clay-lime)', color: 'var(--clay-black)', borderRadius: '3px', padding: '1px 4px', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase' }}>
-                        New
-                      </span>
-                    )}
-                    {selectedComps.includes(w.competitor_name) && (
-                      <span className="ml-1.5" style={{ background: 'rgba(26,25,21,0.08)', color: 'rgba(26,25,21,0.45)', borderRadius: '3px', padding: '1px 4px', fontSize: '9px', fontWeight: 700 }}>
-                        ✓
-                      </span>
-                    )}
-                  </button>
-                  <span className="text-[13px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
-                    {w.current.toFixed(1)}%
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div style={{ borderTop: '1px solid var(--clay-border)', paddingTop: '12px' }}>
-            <div style={{ ...LABEL, color: 'var(--clay-pomegranate)' }} className="mb-2">Biggest Losers</div>
-            {loading ? <SkeletonCard /> : biggestLosers.length === 0 ? (
-              <p style={{ color: 'rgba(26,25,21,0.35)', fontSize: '12px' }}>No losses this period</p>
-            ) : biggestLosers.map((w, i) => (
-              <div key={w.competitor_name} className="flex items-center gap-2 py-1.5"
-                style={{ borderBottom: '1px solid rgba(26,25,21,0.05)' }}>
-                <span style={{ color: 'rgba(26,25,21,0.3)', fontSize: '11px', fontWeight: 700, width: '16px' }}>{i + 1}</span>
-                <span className="flex-1 text-[13px] font-semibold truncate" style={{ color: 'var(--clay-black)' }}>
-                  {w.competitor_name}
+        {/* Right panel: Top Competitors with movement */}
+        <div style={CARD} className="p-4 flex flex-col">
+          <div style={LABEL} className="mb-1">Top Competitors</div>
+          <p className="text-[11px] mb-3" style={{ color: 'rgba(26,25,21,0.45)' }}>By AI visibility this period. Click to add to comparison.</p>
+          {loading ? <SkeletonCard /> : topCompetitors.map((w, i) => (
+            <div key={w.competitor_name} className="flex items-center gap-2 py-2"
+              style={{ borderBottom: '1px solid rgba(26,25,21,0.05)' }}>
+              <span style={{ color: 'rgba(26,25,21,0.3)', fontSize: '11px', fontWeight: 700, width: '16px', flexShrink: 0 }}>{i + 1}</span>
+              <button
+                className="flex-1 text-left text-[13px] font-semibold truncate hover:opacity-70 transition-opacity"
+                style={{ color: 'var(--clay-black)', background: 'none', border: 'none', padding: 0, cursor: selectedComps.includes(w.competitor_name) ? 'default' : 'pointer' }}
+                onClick={() => !selectedComps.includes(w.competitor_name) && selectedComps.length < MAX_SELECT && toggleComp(w.competitor_name)}
+              >
+                {w.competitor_name}
+                {w.isNew && (
+                  <span className="ml-1.5" style={{ background: 'var(--clay-lime)', color: 'var(--clay-black)', borderRadius: '3px', padding: '1px 4px', fontSize: '9px', fontWeight: 700 }}>New</span>
+                )}
+              </button>
+              <span className="text-[13px] font-bold tabular-nums shrink-0" style={{ color: 'var(--clay-black)' }}>
+                {w.current.toFixed(1)}%
+              </span>
+              {w.delta !== null ? (
+                <span className="text-[11px] font-bold shrink-0 flex items-center gap-0.5"
+                  style={{ color: w.delta >= 0 ? '#3a6200' : 'var(--clay-pomegranate)', minWidth: '44px', justifyContent: 'flex-end' }}>
+                  {w.delta >= 0 ? '↑' : '↓'}{Math.abs(w.delta).toFixed(1)}%
                 </span>
-                <DeltaBadge delta={w.delta} />
-              </div>
-            ))}
-          </div>
+              ) : (
+                <span style={{ color: 'rgba(26,25,21,0.25)', fontSize: '11px', minWidth: '44px', textAlign: 'right' }}>—</span>
+              )}
+            </div>
+          ))}
 
           {!loading && emerging.length > 0 && (
-            <div style={{ borderTop: '1px solid var(--clay-border)', paddingTop: '12px', marginTop: '12px' }}>
-              <div style={LABEL} className="mb-2">Emerging Threats</div>
-              {emerging.slice(0, 4).map(w => (
+            <div style={{ borderTop: '1px solid var(--clay-border)', marginTop: '12px', paddingTop: '12px' }}>
+              <div style={LABEL} className="mb-2">New This Period</div>
+              {emerging.slice(0, 3).map(w => (
                 <div key={w.competitor_name} className="flex items-center gap-2 py-1.5"
-                  style={{ borderBottom: '1px solid rgba(26,25,21,0.05)' }}>
-                  <span className="flex-1 text-[13px] font-semibold truncate" style={{ color: 'var(--clay-black)' }}>
-                    {w.competitor_name}
-                  </span>
-                  <span style={{ color: 'rgba(26,25,21,0.55)', fontSize: '12px' }}>{w.current.toFixed(1)}%</span>
-                  <span style={{ background: 'var(--clay-lime)', color: 'var(--clay-black)', borderRadius: '3px', padding: '1px 5px', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase' }}>
-                    New
-                  </span>
+                  style={{ borderBottom: '1px solid rgba(26,25,21,0.04)' }}>
+                  <span className="flex-1 text-[13px] font-semibold truncate" style={{ color: 'var(--clay-black)' }}>{w.competitor_name}</span>
+                  <span className="text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.55)' }}>{w.current.toFixed(1)}%</span>
+                  <span style={{ background: 'var(--clay-lime)', color: 'var(--clay-black)', borderRadius: '3px', padding: '1px 5px', fontSize: '9px', fontWeight: 700 }}>New</span>
                 </div>
               ))}
             </div>
@@ -623,7 +672,7 @@ export default function CompetitivePage() {
       </div>
 
       {/* PMM Topic Comparison */}
-      {loadingExtra ? (
+      {Object.keys(pmmRowsMap).length === 0 ? (
         <div style={CARD} className="p-4">
           {drillTabs}
           <div style={LABEL} className="mb-3">Visibility by PMM Topic</div>
@@ -631,7 +680,8 @@ export default function CompetitivePage() {
         </div>
       ) : (
         <CompPMMComparison
-          rows={pmmRows}
+          allRows={pmmRowsMap}
+          selectedComps={selectedComps}
           selected={activeComp}
           onDrilldown={handlePMMDrilldown}
           headerSlot={drillTabs}

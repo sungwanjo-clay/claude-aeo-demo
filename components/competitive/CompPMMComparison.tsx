@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { ChevronDown, ChevronRight, TrendingUp, TrendingDown } from 'lucide-react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import { getPlatformColor } from '@/lib/utils/colors'
 import type { PMMCompRow, PMMCompPromptRow } from '@/lib/queries/competitive'
 
@@ -12,6 +12,8 @@ const LABEL = {
   textTransform: 'uppercase' as const,
   letterSpacing: '0.06em',
 }
+
+const COMP_COLORS = ['#4A5AFF', '#E5362A', '#FF6B35', '#CC3D8A', '#3DAA6A']
 
 function stripMarkdown(text: string): string {
   return text
@@ -48,48 +50,55 @@ function FullResponseBlock({ text }: { text: string }) {
   )
 }
 
-function DeltaChip({ delta }: { delta: number }) {
-  const pos = delta >= 0
-  return (
-    <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5"
-      style={{ borderRadius: '4px', background: pos ? 'rgba(200,240,64,0.3)' : '#FFE0DD', color: pos ? 'var(--clay-black)' : 'var(--clay-pomegranate)' }}>
-      {pos ? <TrendingUp size={9} /> : <TrendingDown size={9} />}
-      {pos ? '+' : ''}{delta.toFixed(1)}%
-    </span>
-  )
-}
-
 // ── Response row ──────────────────────────────────────────────────────────────
 function CompResponseRow({ r, selected }: { r: PMMCompPromptRow['responses'][0]; selected: string }) {
   const [open, setOpen] = useState(false)
   const hasDetail = !!(r.clay_mention_snippet || r.response_text)
+
+  const clayYes = r.clay_mentioned === 'Yes'
+  const compYes = r.competitor_mentioned
+
   return (
-    <div style={{ borderBottom: '1px solid rgba(26,25,21,0.04)', background: open ? 'rgba(26,25,21,0.01)' : 'transparent' }}>
+    <div style={{ borderBottom: '1px solid rgba(26,25,21,0.05)', background: open ? 'rgba(26,25,21,0.01)' : 'transparent' }}>
       <div
-        className="grid items-center gap-2 px-3 py-2 cursor-pointer hover:bg-[rgba(26,25,21,0.02)]"
-        style={{ gridTemplateColumns: '80px 76px 72px 72px 1fr 16px' }}
+        className="flex items-center gap-2 px-3 py-2.5 cursor-pointer hover:bg-[rgba(26,25,21,0.02)] transition-colors"
         onClick={() => hasDetail && setOpen(v => !v)}
       >
-        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-center"
-          style={{ background: getPlatformColor(r.platform) + '20', color: getPlatformColor(r.platform) }}>
+        {/* Platform */}
+        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0"
+          style={{ background: getPlatformColor(r.platform) + '20', color: getPlatformColor(r.platform), minWidth: '56px', textAlign: 'center' }}>
           {r.platform}
         </span>
-        <span className="text-[11px] tabular-nums" style={{ color: 'rgba(26,25,21,0.5)' }}>{r.run_date}</span>
-        {/* Competitor mentioned */}
-        <span className="text-[10px] font-bold px-1 py-0.5 rounded text-center"
-          style={{ background: r.competitor_mentioned ? 'rgba(74,90,255,0.12)' : 'rgba(26,25,21,0.06)', color: r.competitor_mentioned ? '#4A5AFF' : 'rgba(26,25,21,0.4)' }}>
-          {selected}: {r.competitor_mentioned ? 'Yes' : 'No'}
-        </span>
-        {/* Clay mentioned */}
-        <span className="text-[10px] font-bold px-1 py-0.5 rounded text-center"
-          style={{ background: r.clay_mentioned === 'Yes' ? 'rgba(200,240,64,0.25)' : 'rgba(229,54,42,0.08)', color: r.clay_mentioned === 'Yes' ? 'var(--clay-black)' : 'var(--clay-pomegranate)' }}>
-          Clay: {r.clay_mentioned === 'Yes' ? 'Yes' : 'No'}
-        </span>
-        <div />
+        {/* Date */}
+        <span className="text-[11px] tabular-nums shrink-0" style={{ color: 'rgba(26,25,21,0.45)', width: '72px' }}>{r.run_date}</span>
+
+        {/* Mention status — clear side-by-side */}
+        <div className="flex items-center gap-2 flex-1">
+          {/* Clay */}
+          <div className="flex items-center gap-1 rounded px-2 py-1"
+            style={{ background: clayYes ? 'rgba(200,240,64,0.15)' : 'rgba(229,54,42,0.07)', border: `1px solid ${clayYes ? 'rgba(200,240,64,0.4)' : 'rgba(229,54,42,0.2)'}` }}>
+            <span className="text-[9px] font-bold uppercase tracking-wide" style={{ color: 'rgba(26,25,21,0.5)' }}>Clay</span>
+            <span className="text-[11px] font-bold" style={{ color: clayYes ? '#3a6200' : 'var(--clay-pomegranate)' }}>
+              {clayYes ? '✓' : '✗'}
+            </span>
+          </div>
+          {/* Competitor */}
+          <div className="flex items-center gap-1 rounded px-2 py-1"
+            style={{ background: compYes ? 'rgba(74,90,255,0.1)' : 'rgba(26,25,21,0.05)', border: `1px solid ${compYes ? 'rgba(74,90,255,0.25)' : 'rgba(26,25,21,0.1)'}` }}>
+            <span className="text-[9px] font-bold uppercase tracking-wide truncate" style={{ color: 'rgba(26,25,21,0.5)', maxWidth: '60px' }}>{selected}</span>
+            <span className="text-[11px] font-bold" style={{ color: compYes ? '#4A5AFF' : 'rgba(26,25,21,0.35)' }}>
+              {compYes ? '✓' : '✗'}
+            </span>
+          </div>
+        </div>
+
         {hasDetail
-          ? open ? <ChevronDown size={10} style={{ color: 'rgba(26,25,21,0.35)' }} /> : <ChevronRight size={10} style={{ color: 'rgba(26,25,21,0.35)' }} />
+          ? open
+            ? <ChevronDown size={10} style={{ color: 'rgba(26,25,21,0.35)', flexShrink: 0 }} />
+            : <ChevronRight size={10} style={{ color: 'rgba(26,25,21,0.35)', flexShrink: 0 }} />
           : null}
       </div>
+
       {open && (
         <div className="px-3 pb-3 space-y-2">
           {r.clay_mention_snippet && (
@@ -107,36 +116,41 @@ function CompResponseRow({ r, selected }: { r: PMMCompPromptRow['responses'][0];
   )
 }
 
-// ── Prompt row inside a topic (div-based to avoid nested table layout issues) ─
-function CompPromptRow({ p, selected }: { p: PMMCompPromptRow; selected: string }) {
+// ── Prompt row inside a topic ─────────────────────────────────────────────────
+const PROMPT_LIMIT = 10
+
+function CompPromptRow({ p, selected, nonClayComps }: { p: PMMCompPromptRow; selected: string; nonClayComps: string[] }) {
   const [open, setOpen] = useState(false)
-  const COLS = '1fr 80px 80px 80px 72px'
+  const [showAllResponses, setShowAllResponses] = useState(false)
+
+  const compColor = nonClayComps.length > 0
+    ? COMP_COLORS[nonClayComps.indexOf(selected) % COMP_COLORS.length]
+    : COMP_COLORS[0]
+
+  const visibleResponses = showAllResponses ? p.responses : p.responses.slice(0, PROMPT_LIMIT)
 
   return (
     <div style={{ borderBottom: '1px solid rgba(26,25,21,0.04)' }}>
-      {/* Main row */}
+      {/* Prompt header row */}
       <div
-        className="grid items-center gap-2 px-3 cursor-pointer hover:bg-[rgba(26,25,21,0.02)] transition-colors"
-        style={{ gridTemplateColumns: COLS, paddingLeft: '20px', paddingTop: '8px', paddingBottom: '8px' }}
+        className="grid items-center gap-2 cursor-pointer hover:bg-[rgba(26,25,21,0.02)] transition-colors"
+        style={{ gridTemplateColumns: '1fr 72px 72px 64px', padding: '8px 12px 8px 16px' }}
         onClick={() => setOpen(v => !v)}
       >
         <div className="flex items-center gap-1.5 min-w-0">
           {open
             ? <ChevronDown size={10} style={{ color: 'rgba(26,25,21,0.4)', flexShrink: 0 }} />
             : <ChevronRight size={10} style={{ color: 'rgba(26,25,21,0.4)', flexShrink: 0 }} />}
-          <span className="text-[12px] font-medium leading-tight" style={{ color: 'var(--clay-black)' }}>
+          <span className="text-[12px] font-medium leading-tight truncate" style={{ color: 'var(--clay-black)' }}>
             {p.prompt_text}
           </span>
         </div>
-        <span className="text-right text-[12px] font-bold tabular-nums" style={{ color: '#4A5AFF' }}>
+        <span className="text-right text-[12px] font-bold tabular-nums" style={{ color: compColor }}>
           {p.competitor_visibility.toFixed(1)}%
         </span>
         <span className="text-right text-[12px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
           {p.clay_visibility.toFixed(1)}%
         </span>
-        <div className="flex justify-end">
-          <DeltaChip delta={p.delta} />
-        </div>
         <span className="text-right text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.45)' }}>
           {p.total_responses}
         </span>
@@ -144,15 +158,27 @@ function CompPromptRow({ p, selected }: { p: PMMCompPromptRow; selected: string 
 
       {/* Expanded response list */}
       {open && (
-        <div style={{ padding: '0 12px 10px 20px' }}>
+        <div style={{ padding: '0 12px 10px 16px' }}>
           <div className="rounded-lg overflow-hidden" style={{ border: '1px solid rgba(26,25,21,0.08)' }}>
-            <div className="grid gap-2 px-3 py-1.5"
-              style={{ gridTemplateColumns: '80px 76px 72px 72px 1fr 16px', background: 'rgba(26,25,21,0.03)', borderBottom: '1px solid rgba(26,25,21,0.07)' }}>
-              {['Platform', 'Date', selected, 'Clay', 'Snippet', ''].map(h => (
-                <span key={h} style={{ ...LABEL, fontSize: '9px' }}>{h}</span>
-              ))}
+            {/* Response sub-header */}
+            <div className="flex items-center gap-2 px-3 py-1.5"
+              style={{ background: 'rgba(26,25,21,0.03)', borderBottom: '1px solid rgba(26,25,21,0.07)' }}>
+              <span style={{ ...LABEL, fontSize: '9px', width: '56px' }}>Platform</span>
+              <span style={{ ...LABEL, fontSize: '9px', width: '72px' }}>Date</span>
+              <span style={{ ...LABEL, fontSize: '9px' }}>Mentioned in response</span>
             </div>
-            {p.responses.map(r => <CompResponseRow key={r.id} r={r} selected={selected} />)}
+            {visibleResponses.map(r => <CompResponseRow key={r.id} r={r} selected={selected} />)}
+            {p.responses.length > PROMPT_LIMIT && (
+              <button
+                onClick={e => { e.stopPropagation(); setShowAllResponses(v => !v) }}
+                className="w-full py-2 text-[10px] font-bold uppercase tracking-wider hover:opacity-70 transition-opacity"
+                style={{ color: 'rgba(26,25,21,0.45)', background: 'none', borderTop: '1px solid rgba(26,25,21,0.07)', cursor: 'pointer' }}
+              >
+                {showAllResponses
+                  ? 'Show fewer ↑'
+                  : `Show all ${p.responses.length} responses ↓`}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -161,27 +187,34 @@ function CompPromptRow({ p, selected }: { p: PMMCompPromptRow; selected: string 
 }
 
 // ── Topic row ─────────────────────────────────────────────────────────────────
+const TOPIC_PROMPT_LIMIT = 10
+
 function CompTopicRow({
   row,
   selected,
+  nonClayComps,
   onExpand,
   prompts,
   loading,
+  extraCols,
 }: {
-  row: PMMCompRow
+  row: { pmm_use_case: string; total_responses: number; byComp: Record<string, number>; clay_visibility: number }
   selected: string
+  nonClayComps: string[]
   onExpand: () => void
   prompts: PMMCompPromptRow[] | null
   loading: boolean
+  extraCols: string[] // non-Clay competitors to show columns for
 }) {
   const [open, setOpen] = useState(false)
+  const [showAllPrompts, setShowAllPrompts] = useState(false)
 
   function handleClick() {
     if (!open && !prompts) onExpand()
     setOpen(v => !v)
   }
 
-  const compAhead = row.delta > 0
+  const visiblePrompts = showAllPrompts ? (prompts ?? []) : (prompts ?? []).slice(0, TOPIC_PROMPT_LIMIT)
 
   return (
     <React.Fragment>
@@ -200,14 +233,16 @@ function CompTopicRow({
             </span>
           </div>
         </td>
-        <td className="py-3 px-3 text-right text-[13px] font-bold tabular-nums" style={{ color: '#4A5AFF' }}>
-          {row.competitor_visibility.toFixed(1)}%
-        </td>
+        {/* Per non-Clay competitor columns */}
+        {extraCols.map((comp, i) => (
+          <td key={comp} className="py-3 px-3 text-right text-[13px] font-bold tabular-nums"
+            style={{ color: COMP_COLORS[i % COMP_COLORS.length] }}>
+            {(row.byComp[comp] ?? 0).toFixed(1)}%
+          </td>
+        ))}
+        {/* Clay column */}
         <td className="py-3 px-3 text-right text-[13px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
           {row.clay_visibility.toFixed(1)}%
-        </td>
-        <td className="py-3 px-3 text-right">
-          <DeltaChip delta={row.delta} />
         </td>
         <td className="py-3 px-3 text-right text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.45)' }}>
           {row.total_responses.toLocaleString()}
@@ -216,22 +251,37 @@ function CompTopicRow({
 
       {open && (
         <tr style={{ borderBottom: '1px solid rgba(26,25,21,0.06)' }}>
-          <td colSpan={5} style={{ padding: '4px 12px 12px 12px' }}>
+          <td colSpan={extraCols.length + 3} style={{ padding: '4px 12px 12px 12px' }}>
             {loading ? (
               <p className="px-4 py-3 text-[11px] font-semibold" style={{ color: 'rgba(26,25,21,0.4)' }}>Loading prompts…</p>
             ) : !prompts || prompts.length === 0 ? (
               <p className="px-4 py-3 text-[11px] font-semibold" style={{ color: 'rgba(26,25,21,0.35)' }}>No prompt data</p>
             ) : (
               <div className="rounded-lg overflow-hidden" style={{ border: '1px solid rgba(26,25,21,0.08)' }}>
-                <div className="grid px-3 py-1.5"
-                  style={{ gridTemplateColumns: '1fr 80px 80px 80px 72px', background: 'rgba(26,25,21,0.03)', borderBottom: '1px solid rgba(26,25,21,0.07)', paddingLeft: '20px' }}>
-                  {['Prompt', selected, 'Clay', 'Δ', 'Responses'].map((h, i) => (
-                    <span key={h} className={i > 0 ? 'text-right' : ''} style={{ ...LABEL, fontSize: '9px' }}>{h}</span>
-                  ))}
+                {/* Prompt sub-header — same grid as CompPromptRow */}
+                <div className="grid items-center gap-2"
+                  style={{ gridTemplateColumns: '1fr 72px 72px 64px', padding: '6px 12px 6px 16px', background: 'rgba(26,25,21,0.03)', borderBottom: '1px solid rgba(26,25,21,0.07)' }}>
+                  <span style={LABEL}>Prompt</span>
+                  <span className="text-right" style={{ ...LABEL, color: COMP_COLORS[Math.max(0, nonClayComps.indexOf(selected)) % COMP_COLORS.length] }}>{selected} %</span>
+                  <span className="text-right" style={LABEL}>Clay %</span>
+                  <span className="text-right" style={LABEL}>Responses</span>
                 </div>
                 <div>
-                  {prompts.map(p => <CompPromptRow key={p.prompt_id} p={p} selected={selected} />)}
+                  {visiblePrompts.map(p => (
+                    <CompPromptRow key={p.prompt_id} p={p} selected={selected} nonClayComps={nonClayComps} />
+                  ))}
                 </div>
+                {prompts.length > TOPIC_PROMPT_LIMIT && (
+                  <button
+                    onClick={e => { e.stopPropagation(); setShowAllPrompts(v => !v) }}
+                    className="w-full py-2 text-[10px] font-bold uppercase tracking-wider hover:opacity-70 transition-opacity"
+                    style={{ color: 'rgba(26,25,21,0.45)', background: 'none', borderTop: '1px solid rgba(26,25,21,0.07)', cursor: 'pointer' }}
+                  >
+                    {showAllPrompts
+                      ? 'Show fewer prompts ↑'
+                      : `Show all ${prompts.length} prompts ↓`}
+                  </button>
+                )}
               </div>
             )}
           </td>
@@ -243,13 +293,14 @@ function CompTopicRow({
 
 // ── Main component ────────────────────────────────────────────────────────────
 interface Props {
-  rows: PMMCompRow[]
-  selected: string
+  allRows: Record<string, PMMCompRow[]>
+  selectedComps: string[]
+  selected: string   // activeComp for drilldown
   onDrilldown: (pmmUseCase: string) => Promise<PMMCompPromptRow[]>
   headerSlot?: React.ReactNode
 }
 
-export default function CompPMMComparison({ rows, selected, onDrilldown, headerSlot }: Props) {
+export default function CompPMMComparison({ allRows, selectedComps, selected, onDrilldown, headerSlot }: Props) {
   const [drillCache, setDrillCache] = useState<Record<string, PMMCompPromptRow[]>>({})
   const [loadingDrill, setLoadingDrill] = useState<string | null>(null)
 
@@ -261,16 +312,48 @@ export default function CompPMMComparison({ rows, selected, onDrilldown, headerS
     setLoadingDrill(null)
   }
 
+  // Columns: non-Clay competitors + Clay
+  const nonClayComps = selectedComps.filter(c => c !== 'Clay')
+
+  // Merge all topics across all loaded competitors
+  const allTopics = new Set<string>()
+  for (const rows of Object.values(allRows)) {
+    for (const r of rows) allTopics.add(r.pmm_use_case)
+  }
+
+  // Build merged rows: one per topic with per-competitor visibility + Clay vis
+  const mergedRows = Array.from(allTopics).map(topic => {
+    const byComp: Record<string, number> = {}
+    let clay_visibility = 0
+    let total_responses = 0
+    for (const [comp, rows] of Object.entries(allRows)) {
+      const row = rows.find(r => r.pmm_use_case === topic)
+      if (row) {
+        byComp[comp] = row.competitor_visibility
+        if (row.clay_visibility) clay_visibility = row.clay_visibility
+        if (row.total_responses > total_responses) total_responses = row.total_responses
+      }
+    }
+    // Primary sort: selected competitor visibility (or clay if selected is Clay)
+    const sortVal = byComp[selected] ?? clay_visibility
+    return { pmm_use_case: topic, byComp, clay_visibility, total_responses, sortVal }
+  }).sort((a, b) => b.sortVal - a.sortVal)
+
   const CARD = { background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }
+
+  const subtitle = nonClayComps.length > 0
+    ? `Visibility scores per PMM topic. Expand a topic to see which prompts are driving the gap.`
+    : `Clay's visibility per PMM topic. Expand a topic to see prompts.`
 
   return (
     <div style={CARD} className="p-4">
       {headerSlot}
-      <div style={LABEL} className="mb-1">Visibility by PMM Topic — {selected} vs Clay</div>
-      <p className="text-xs mb-4" style={{ color: 'rgba(26,25,21,0.45)' }}>
-        Side-by-side visibility scores per topic. Δ = {selected} minus Clay. Expand a row to see which prompts are driving the gap.
-      </p>
-      {rows.length === 0 ? (
+      <div style={LABEL} className="mb-1">
+        Visibility by PMM Topic — {nonClayComps.length > 0 ? `${nonClayComps.join(', ')} vs Clay` : 'Clay'}
+      </div>
+      <p className="text-xs mb-4" style={{ color: 'rgba(26,25,21,0.45)' }}>{subtitle}</p>
+
+      {mergedRows.length === 0 ? (
         <div className="flex items-center justify-center py-12 text-[13px]" style={{ color: 'rgba(26,25,21,0.35)' }}>
           No PMM topic data available
         </div>
@@ -279,18 +362,23 @@ export default function CompPMMComparison({ rows, selected, onDrilldown, headerS
           <thead>
             <tr style={{ borderBottom: '1px solid var(--clay-border)' }}>
               <th className="pb-2 text-left px-4" style={LABEL}>Topic</th>
-              <th className="pb-2 text-right px-3" style={{ ...LABEL, color: '#4A5AFF' }}>{selected} %</th>
+              {nonClayComps.map((comp, i) => (
+                <th key={comp} className="pb-2 text-right px-3" style={{ ...LABEL, color: COMP_COLORS[i % COMP_COLORS.length] }}>
+                  {comp} %
+                </th>
+              ))}
               <th className="pb-2 text-right px-3" style={LABEL}>Clay %</th>
-              <th className="pb-2 text-right px-3" style={LABEL}>Δ</th>
               <th className="pb-2 text-right px-3" style={LABEL}>Responses</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map(row => (
+            {mergedRows.map(row => (
               <CompTopicRow
                 key={row.pmm_use_case}
                 row={row}
                 selected={selected}
+                nonClayComps={nonClayComps}
+                extraCols={nonClayComps}
                 onExpand={() => handleExpand(row.pmm_use_case)}
                 prompts={drillCache[row.pmm_use_case] ?? null}
                 loading={loadingDrill === row.pmm_use_case}
