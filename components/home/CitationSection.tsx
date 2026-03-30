@@ -81,12 +81,23 @@ function buildChartData(
 const COMPETITOR_COLORS = ['#4A5AFF', '#FF6B35', '#CC3D8A', '#3DB8CC', '#3DAA6A']
 
 // ── Top Cited Competitors sidebar ──────────────────────────────────────────────
-function TopCitedSidebar({ domains }: { domains: DomainRow[] }) {
-  const clay = domains.find(d => d.is_clay)
+function TopCitedSidebar({ domains, competitorTimeseries }: {
+  domains: DomainRow[]
+  competitorTimeseries: { date: string; domain: string; value: number }[]
+}) {
+  // Find Clay in domains; if not present (outside top 20), derive from competitorTimeseries
+  let clay: DomainRow | undefined = domains.find(d => d.is_clay || d.domain.toLowerCase().includes('clay'))
+  if (!clay) {
+    const clayTs = competitorTimeseries.filter(r => r.domain === 'clay.com')
+    if (clayTs.length > 0) {
+      const avg = clayTs.reduce((s, r) => s + r.value, 0) / clayTs.length
+      clay = { domain: 'clay.com', citation_count: clayTs.length, share_pct: avg, is_clay: true, citation_type: 'Owned', top_urls: [] }
+    }
+  }
 
   // Top 5 non-Clay competitor domains only (citation_type === 'Competition'), then always add Clay
   const nonClay = [...domains]
-    .filter(d => !d.is_clay && d.citation_type === 'Competition')
+    .filter(d => !d.is_clay && !d.domain.toLowerCase().includes('clay') && d.citation_type === 'Competition')
     .sort((a, b) => b.share_pct - a.share_pct)
     .slice(0, 5)
 
@@ -218,7 +229,7 @@ export default function CitationSection({ timeseries, domains, competitorTimeser
           <h3 className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: 'rgba(26,25,21,0.45)' }}>
             Top Cited Competitors
           </h3>
-          <TopCitedSidebar domains={domains} />
+          <TopCitedSidebar domains={domains} competitorTimeseries={competitorTimeseries} />
         </div>
       </div>
 
