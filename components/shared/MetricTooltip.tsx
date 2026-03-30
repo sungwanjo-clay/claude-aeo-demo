@@ -28,6 +28,7 @@ export const TOOLTIP_DEFINITIONS: Record<string, string> = {
   'Neutral %': 'Of responses where Clay was mentioned, what % described Clay in a neutral (neither positive nor negative) way.',
   'Negative %': 'Of responses where Clay was mentioned, what % described Clay negatively.',
   // Citations
+  'Citation Rate': '% of AI responses where clay.com appeared as a cited source, out of all responses that cited any domain. Higher = Clay earns more citations relative to the total citation pool.',
   'Citation Domain Rank': 'Clay.com\'s rank among all domains cited in the period by response count (1 = most cited domain).',
   'Total Unique Domains': 'Number of distinct domains cited across all AI responses in the selected period.',
   'Avg Citations per Response': 'Average number of distinct source domains cited per AI response that included any citations.',

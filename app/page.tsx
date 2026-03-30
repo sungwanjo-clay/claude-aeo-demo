@@ -305,7 +305,7 @@ export default function HomePage() {
         </div>
 
         <div className="p-4" style={{ background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }}>
-          <h3 className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: 'rgba(26,25,21,0.45)' }}>Top Competitors</h3>
+          <h3 className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: 'rgba(26,25,21,0.45)' }}>Top Mentioned Competitors</h3>
           {loading ? (
             <SkeletonCard />
           ) : competitors.length > 0 ? (
