@@ -16,8 +16,10 @@ export const SENTIMENT_COLORS: Record<string, string> = {
 export const CITATION_TYPE_COLORS: Record<string, string> = {
   Competition: '#E5362A',       // pomegranate
   'Earned Media': '#4A5AFF',    // blueberry
-  Social: '#CC3D8A',            // dragonfruit
+  Social: '#8B5CF6',            // violet
+  Institution: '#0EA5E9',       // sky
   Owned: '#3DAA6A',             // matcha
+  'PR Wire': '#F59E0B',         // amber
   Other: '#9CA3AF',
 }
 
