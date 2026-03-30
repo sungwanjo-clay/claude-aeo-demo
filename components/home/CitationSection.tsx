@@ -81,18 +81,15 @@ function buildChartData(
 const COMPETITOR_COLORS = ['#4A5AFF', '#FF6B35', '#CC3D8A', '#3DB8CC', '#3DAA6A']
 
 // ── Top Cited Competitors sidebar ──────────────────────────────────────────────
-function TopCitedSidebar({ domains, competitorTimeseries }: {
+function TopCitedSidebar({ domains, competitorTimeseries, citationRateKPI }: {
   domains: DomainRow[]
   competitorTimeseries: { date: string; domain: string; value: number }[]
+  citationRateKPI?: number | null
 }) {
-  // Find Clay in domains; if not present (outside top 20), derive from competitorTimeseries
-  let clay: DomainRow | undefined = domains.find(d => d.is_clay || d.domain.toLowerCase().includes('clay'))
+  // Find Clay in domains; if not present derive a placeholder
+  let clay: DomainRow | undefined = domains.find(d => d.is_clay || d.domain.toLowerCase().includes('clay.com'))
   if (!clay) {
-    const clayTs = competitorTimeseries.filter(r => r.domain === 'clay.com')
-    if (clayTs.length > 0) {
-      const avg = clayTs.reduce((s, r) => s + r.value, 0) / clayTs.length
-      clay = { domain: 'clay.com', citation_count: clayTs.length, share_pct: avg, is_clay: true, citation_type: 'Owned', top_urls: [] }
-    }
+    clay = { domain: 'clay.com', citation_count: 0, share_pct: 0, is_clay: true, citation_type: 'Owned', top_urls: [] }
   }
 
   // Top 5 non-Clay competitor domains only (citation_type === 'Competition'), then always add Clay
@@ -101,9 +98,9 @@ function TopCitedSidebar({ domains, competitorTimeseries }: {
     .sort((a, b) => b.share_pct - a.share_pct)
     .slice(0, 5)
 
-  const rows = clay
-    ? [...nonClay, clay].sort((a, b) => b.share_pct - a.share_pct)
-    : nonClay
+  // Use KPI value for Clay so it matches the chart and KPI card exactly
+  const clayDisplay = { ...clay, share_pct: citationRateKPI ?? clay.share_pct }
+  const rows = [...nonClay, clayDisplay].sort((a, b) => b.share_pct - a.share_pct)
 
   if (!rows.length) {
     return (
@@ -229,7 +226,7 @@ export default function CitationSection({ timeseries, domains, competitorTimeser
           <h3 className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: 'rgba(26,25,21,0.45)' }}>
             Top Cited Competitors
           </h3>
-          <TopCitedSidebar domains={domains} competitorTimeseries={competitorTimeseries} />
+          <TopCitedSidebar domains={domains} competitorTimeseries={competitorTimeseries} citationRateKPI={citationRateKPI} />
         </div>
       </div>
 
