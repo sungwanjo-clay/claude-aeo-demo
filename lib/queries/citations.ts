@@ -537,12 +537,13 @@ export async function getTopCitedDomainsEnhanced(
     .slice(0, 30)
 }
 
-// ── Citation rate grouped by prompt topic ─────────────────────────────────────
+// ── Citation rate grouped by prompt topic (timeseries) ────────────────────────
+// Returns one row per date × topic with Clay citation rate as the value,
+// suitable for rendering as a multi-line chart (one line per topic).
 export interface TopicCitationRow {
+  date: string
   topic: string
-  total_responses: number
-  any_citation_rate: number  // % of responses with any cited_domains
-  clay_citation_rate: number // % of responses citing clay.com
+  value: number // Clay citation rate % for that date × topic
 }
 
 export async function getCitationRateByTopic(
@@ -550,42 +551,52 @@ export async function getCitationRateByTopic(
   f: FilterParams
 ): Promise<TopicCitationRow[]> {
   const { data, error } = await applyResponseFilters(
-    sb.from('responses').select('topic, cited_domains'),
+    sb.from('responses').select('run_date, topic, cited_domains'),
     f
   ).not('topic', 'is', null).limit(20000)
 
   if (error) { console.error('getCitationRateByTopic', error); return [] }
   if (!data?.length) return []
 
-  const map = new Map<string, { total: number; withAnyCit: number; withClayCit: number }>()
+  // Accumulate per date × topic
+  const map = new Map<string, { total: number; withClayCit: number }>()
 
   for (const row of data) {
+    const date = (row.run_date ?? '').substring(0, 10)
     const topic: string = row.topic ?? 'Unknown'
-    const cur = map.get(topic) ?? { total: 0, withAnyCit: 0, withClayCit: 0 }
+    if (!date || !topic) continue
+    const key = `${date}|||${topic}`
+    const cur = map.get(key) ?? { total: 0, withClayCit: 0 }
     cur.total++
     try {
       const domains: string[] = Array.isArray(row.cited_domains)
         ? row.cited_domains
         : JSON.parse(row.cited_domains ?? '[]')
-      if (domains.length > 0) {
-        cur.withAnyCit++
-        if (domains.some((d: string) => typeof d === 'string' && d.toLowerCase().includes('clay'))) {
-          cur.withClayCit++
-        }
+      if (domains.some((d: string) => typeof d === 'string' && d.toLowerCase().includes('clay'))) {
+        cur.withClayCit++
       }
     } catch { /* ignore parse errors */ }
-    map.set(topic, cur)
+    map.set(key, cur)
+  }
+
+  // Filter topics with too few total responses (across all dates)
+  const topicTotals = new Map<string, number>()
+  for (const [key, { total }] of map) {
+    const topic = key.split('|||')[1]
+    topicTotals.set(topic, (topicTotals.get(topic) ?? 0) + total)
   }
 
   return Array.from(map.entries())
-    .map(([topic, { total, withAnyCit, withClayCit }]) => ({
-      topic,
-      total_responses: total,
-      any_citation_rate: total > 0 ? (withAnyCit / total) * 100 : 0,
-      clay_citation_rate: total > 0 ? (withClayCit / total) * 100 : 0,
-    }))
-    .filter(r => r.total_responses >= 3)  // skip topics with too few responses
-    .sort((a, b) => b.any_citation_rate - a.any_citation_rate)
+    .filter(([key]) => (topicTotals.get(key.split('|||')[1]) ?? 0) >= 5)
+    .map(([key, { total, withClayCit }]) => {
+      const [date, topic] = key.split('|||')
+      return {
+        date,
+        topic,
+        value: total > 0 ? (withClayCit / total) * 100 : 0,
+      }
+    })
+    .sort((a, b) => a.date.localeCompare(b.date))
 }
 
 // ── Citation activity timeseries from citation_domains ─────────────────────────
