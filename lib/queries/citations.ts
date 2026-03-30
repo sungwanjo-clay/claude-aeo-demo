@@ -227,9 +227,10 @@ export async function getCompetitorCitationTimeseries(
     if (r.id && date) responseIdToDate.set(String(r.id), date)
   }
 
-  // Step 2: Query citation_domains by date + platform; filter to filtered responses in JS
+  // Step 2: Query citation_domains — include citation_type so we can restrict
+  // competitor lines to citation_type = 'Competition' only; Clay is always pinned.
   let q = sb.from('citation_domains')
-    .select('domain, response_id')
+    .select('domain, response_id, citation_type')
     .gte('run_date', f.startDate)
     .lte('run_date', f.endDate)
   if (f.platforms?.length) q = q.in('platform', f.platforms)
@@ -239,9 +240,10 @@ export async function getCompetitorCitationTimeseries(
   // Step 3: Compute per-date unique response counts
   // Denominator: unique response_ids with any citation entry per date
   // Numerator: unique response_ids citing each domain per date
+  // For competitor ranking, only count citation_type = 'Competition' rows
   const citingByDate = new Map<string, Set<string>>()       // date -> Set<response_id>
   const domainByDate = new Map<string, Set<string>>()       // `${date}|||${domain}` -> Set<response_id>
-  const domainTotals = new Map<string, number>()             // domain -> total unique responses
+  const competitorTotals = new Map<string, number>()         // competitor domain -> total unique responses
 
   for (const c of citations as any[]) {
     const rid = String(c.response_id)
@@ -249,7 +251,8 @@ export async function getCompetitorCitationTimeseries(
     if (!date) continue                       // skip responses excluded by topic/branded/promptType filters
     const d = (c.domain ?? '').toLowerCase()
     if (!d) continue
-    const key = d.includes('clay') ? 'clay.com' : d
+    const isClay = d.includes('clay')
+    const key = isClay ? 'clay.com' : d
 
     if (!citingByDate.has(date)) citingByDate.set(date, new Set())
     citingByDate.get(date)!.add(rid)
@@ -258,12 +261,15 @@ export async function getCompetitorCitationTimeseries(
     if (!domainByDate.has(dk)) domainByDate.set(dk, new Set())
     const wasNew = !domainByDate.get(dk)!.has(rid)
     domainByDate.get(dk)!.add(rid)
-    if (wasNew) domainTotals.set(key, (domainTotals.get(key) ?? 0) + 1)
+
+    // Only rank non-clay domains that have citation_type = 'Competition'
+    if (wasNew && !isClay && c.citation_type === 'Competition') {
+      competitorTotals.set(key, (competitorTotals.get(key) ?? 0) + 1)
+    }
   }
 
-  // Top N non-clay domains by unique response count + always include clay.com
-  const topNonClay = [...domainTotals.entries()]
-    .filter(([d]) => !d.includes('clay'))
+  // Top N competitor domains (Competition type only) + always include clay.com
+  const topNonClay = [...competitorTotals.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, topN)
     .map(([d]) => d)

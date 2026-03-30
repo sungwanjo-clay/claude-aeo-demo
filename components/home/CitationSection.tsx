@@ -45,18 +45,20 @@ function InfoTooltip({ text }: { text: string }) {
   )
 }
 
-// Always build chart data with all competitor columns — toggling shows/hides <Line>s only
+// Always build chart data with all competitor columns — toggling shows/hides <Line>s only.
+// Clay's line is derived from competitorTs (domain='clay.com') so both use the same
+// citation_domains source and denominator — no more missing Clay line.
 function buildChartData(
-  timeseries: CitationTimepoint[],
   competitorTs: { date: string; domain: string; value: number }[]
 ) {
-  const dates = [...new Set([
-    ...timeseries.map(r => r.date),
-    ...competitorTs.map(r => r.date),
-  ])].sort()
+  // Split clay vs competitors
+  const clayTs   = competitorTs.filter(r => r.domain === 'clay.com')
+  const nonClayTs = competitorTs.filter(r => r.domain !== 'clay.com')
+
+  const dates = [...new Set(competitorTs.map(r => r.date))].sort()
 
   const domainTotals = new Map<string, number>()
-  for (const r of competitorTs) {
+  for (const r of nonClayTs) {
     domainTotals.set(r.domain, (domainTotals.get(r.domain) ?? 0) + r.value)
   }
   const topDomains = [...domainTotals.entries()]
@@ -64,8 +66,8 @@ function buildChartData(
     .slice(0, 5)
     .map(([d]) => d)
 
-  const clayLookup = new Map(timeseries.map(r => [r.date, r.value]))
-  const compLookup = new Map(competitorTs.map(r => [`${r.date}|||${r.domain}`, r.value]))
+  const clayLookup = new Map(clayTs.map(r => [r.date, r.value]))
+  const compLookup = new Map(nonClayTs.map(r => [`${r.date}|||${r.domain}`, r.value]))
 
   const data = dates.map(date => {
     const row: Record<string, string | number> = { date, Clay: clayLookup.get(date) ?? 0 }
@@ -136,7 +138,7 @@ export default function CitationSection({ timeseries, domains, competitorTimeser
   const [showCompetitors, setShowCompetitors] = useState(true)   // default ON
   const [search, setSearch] = useState('')
 
-  const { competitorDomains, data: chartData } = buildChartData(timeseries, competitorTimeseries)
+  const { competitorDomains, data: chartData } = buildChartData(competitorTimeseries)
 
   // Dynamic Y-axis max
   const allVals = chartData.flatMap(r => Object.entries(r).filter(([k]) => k !== 'date').map(([, v]) => Number(v)))
