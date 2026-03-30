@@ -350,7 +350,7 @@ export default function HomePage() {
       <div>
         <h2 className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'rgba(26,25,21,0.45)' }}>Citations</h2>
         {loadingExtra ? <div className="space-y-4"><SkeletonChart /><SkeletonChart /></div> : (
-          <CitationSection timeseries={citationTimeseries} domains={citedDomains} competitorTimeseries={competitorCitTimeseries} />
+          <CitationSection timeseries={citationTimeseries} domains={citedDomains} competitorTimeseries={competitorCitTimeseries} citationRateKPI={citationRate?.current ?? null} />
         )}
       </div>
 

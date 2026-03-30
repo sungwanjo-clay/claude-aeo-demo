@@ -21,6 +21,7 @@ interface Props {
   timeseries: CitationTimepoint[]
   domains: DomainRow[]
   competitorTimeseries?: { date: string; domain: string; value: number }[]
+  citationRateKPI?: number | null  // period-aggregate KPI value — used as Clay's line so chart matches KPI exactly
 }
 
 const cardStyle = { background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }
@@ -46,20 +47,14 @@ function InfoTooltip({ text }: { text: string }) {
 }
 
 // Always build chart data with all competitor columns — toggling shows/hides <Line>s only.
-// Clay's line uses overallTs (from responses.cited_domains) to match the KPI formula exactly.
-// Competitor lines use competitorTs (from citation_domains).
+// Clay's line is a flat reference line using the period-aggregate KPI value so it always
+// matches the KPI card exactly. Competitor lines use per-day rates from competitorTs.
 function buildChartData(
-  overallTs: { date: string; value: number }[],
-  competitorTs: { date: string; domain: string; value: number }[]
+  competitorTs: { date: string; domain: string; value: number }[],
+  clayKPI: number | null | undefined
 ) {
-  // Only non-Clay competitor rows
   const nonClayTs = competitorTs.filter(r => r.domain !== 'clay.com')
-
-  // All unique dates across both sources
-  const allDates = [...new Set([
-    ...overallTs.map(r => r.date),
-    ...nonClayTs.map(r => r.date),
-  ])].sort()
+  const allDates = [...new Set(nonClayTs.map(r => r.date))].sort()
 
   const domainTotals = new Map<string, number>()
   for (const r of nonClayTs) {
@@ -70,12 +65,12 @@ function buildChartData(
     .slice(0, 5)
     .map(([d]) => d)
 
-  // Clay lookup from overallTs (same formula as KPI)
-  const clayLookup = new Map(overallTs.map(r => [r.date, r.value]))
   const compLookup = new Map(nonClayTs.map(r => [`${r.date}|||${r.domain}`, r.value]))
+  // Clay is a flat line at the KPI value so every tooltip shows the same number as the KPI card
+  const clayValue = clayKPI ?? 0
 
   const data = allDates.map(date => {
-    const row: Record<string, string | number> = { date, Clay: clayLookup.get(date) ?? 0 }
+    const row: Record<string, string | number> = { date, Clay: clayValue }
     for (const d of topDomains) row[d] = compLookup.get(`${date}|||${d}`) ?? 0
     return row
   })
@@ -148,13 +143,13 @@ function TopCitedSidebar({ domains, competitorTimeseries }: {
   )
 }
 
-export default function CitationSection({ timeseries, domains, competitorTimeseries = [] }: Props) {
+export default function CitationSection({ timeseries, domains, competitorTimeseries = [], citationRateKPI }: Props) {
   const [expandedDomain, setExpandedDomain] = useState<string | null>(null)
   const [showAll, setShowAll] = useState(false)
   const [showCompetitors, setShowCompetitors] = useState(true)   // default ON
   const [search, setSearch] = useState('')
 
-  const { competitorDomains, data: chartData } = buildChartData(timeseries, competitorTimeseries)
+  const { competitorDomains, data: chartData } = buildChartData(competitorTimeseries, citationRateKPI)
 
   // Dynamic Y-axis max
   const allVals = chartData.flatMap(r => Object.entries(r).filter(([k]) => k !== 'date').map(([, v]) => Number(v)))
