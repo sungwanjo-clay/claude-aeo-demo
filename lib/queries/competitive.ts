@@ -867,15 +867,30 @@ export async function getClaygentMcpStats(
 
 // ── Sentiment vs Clay ─────────────────────────────────────────────────────────
 
-export interface SentimentCoMentionSnippet {
+export interface SentimentThemeSnippet {
   id: string
   platform: string
   run_date: string
   brand_sentiment: string | null
   brand_sentiment_score: number | null
+  theme_sentiment: string         // sentiment for this specific theme occurrence
+  theme_snippet: string | null    // the AI-extracted snippet for this theme
   positioning_vs_competitors: string | null
   clay_mention_snippet: string | null
   response_text: string | null
+}
+
+export interface SentimentThemeGroup {
+  theme: string
+  total: number             // responses that mention this theme
+  positive: number
+  neutral: number
+  negative: number
+  positivePct: number
+  neutralPct: number
+  negativePct: number
+  dominantSentiment: string // Positive | Neutral | Negative
+  snippets: SentimentThemeSnippet[]
 }
 
 export interface SentimentVsClayData {
@@ -884,7 +899,7 @@ export interface SentimentVsClayData {
   clayNeutralPct: number
   clayNegativePct: number
   clayAvgScore: number | null
-  snippets: SentimentCoMentionSnippet[]
+  themeGroups: SentimentThemeGroup[]
 }
 
 export async function getCompetitorSentimentVsClay(
@@ -907,10 +922,10 @@ export async function getCompetitorSentimentVsClay(
     compResponseIds = new Set(rcData.map(r => r.response_id))
   }
 
-  // Pull Clay-mentioned responses with sentiment fields
+  // Pull Clay-mentioned responses with sentiment + themes fields
   let query = sb
     .from('responses')
-    .select('id, platform, run_date, brand_sentiment, brand_sentiment_score, positioning_vs_competitors, clay_mention_snippet, response_text')
+    .select('id, platform, run_date, brand_sentiment, brand_sentiment_score, positioning_vs_competitors, clay_mention_snippet, response_text, themes')
     .gte('run_date', f.startDate)
     .lte('run_date', f.endDate)
     .eq('clay_mentioned', 'Yes')
@@ -924,26 +939,79 @@ export async function getCompetitorSentimentVsClay(
   const relevant = isClay ? data : data.filter(r => compResponseIds!.has(r.id))
   if (!relevant.length) return null
 
+  // Overall sentiment aggregates
   const pos = relevant.filter(r => r.brand_sentiment === 'Positive').length
   const neu = relevant.filter(r => r.brand_sentiment === 'Neutral').length
   const neg = relevant.filter(r => r.brand_sentiment === 'Negative').length
   const scores = relevant.map(r => r.brand_sentiment_score).filter((s): s is number => s != null)
   const avgScore = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null
 
-  const snippets: SentimentCoMentionSnippet[] = relevant
-    .filter(r => r.positioning_vs_competitors || r.clay_mention_snippet)
-    .map(r => ({
-      id: r.id,
-      platform: r.platform ?? '',
-      run_date: (r.run_date ?? '').substring(0, 10),
-      brand_sentiment: r.brand_sentiment ?? null,
-      brand_sentiment_score: r.brand_sentiment_score ?? null,
-      positioning_vs_competitors: r.positioning_vs_competitors ?? null,
-      clay_mention_snippet: r.clay_mention_snippet ?? null,
-      response_text: r.response_text ?? null,
-    }))
-    .sort((a, b) => (b.brand_sentiment_score ?? 0) - (a.brand_sentiment_score ?? 0))
-    .slice(0, 60)
+  // Build theme groups: theme → { pos, neu, neg, snippets[] }
+  type ThemeAcc = { pos: number; neu: number; neg: number; snippets: SentimentThemeSnippet[] }
+  const themeMap = new Map<string, ThemeAcc>()
+
+  for (const r of relevant) {
+    const themes: { theme: string; sentiment: string; snippet?: string }[] =
+      Array.isArray(r.themes) ? r.themes : []
+
+    for (const t of themes) {
+      if (!t.theme) continue
+      const acc = themeMap.get(t.theme) ?? { pos: 0, neu: 0, neg: 0, snippets: [] }
+
+      const ts = t.sentiment ?? ''
+      if (ts === 'Positive') acc.pos++
+      else if (ts === 'Negative') acc.neg++
+      else acc.neu++
+
+      // Only add snippet if there's some useful content (cap per theme)
+      if (acc.snippets.length < 30) {
+        acc.snippets.push({
+          id: r.id,
+          platform: r.platform ?? '',
+          run_date: (r.run_date ?? '').substring(0, 10),
+          brand_sentiment: r.brand_sentiment ?? null,
+          brand_sentiment_score: r.brand_sentiment_score ?? null,
+          theme_sentiment: ts,
+          theme_snippet: t.snippet ?? null,
+          positioning_vs_competitors: r.positioning_vs_competitors ?? null,
+          clay_mention_snippet: r.clay_mention_snippet ?? null,
+          response_text: r.response_text ?? null,
+        })
+      }
+      themeMap.set(t.theme, acc)
+    }
+  }
+
+  // Convert to sorted groups — sort: negative-dominant first, then by total count
+  const themeGroups: SentimentThemeGroup[] = Array.from(themeMap.entries())
+    .map(([theme, acc]) => {
+      const total = acc.pos + acc.neu + acc.neg
+      const posP = total > 0 ? (acc.pos / total) * 100 : 0
+      const neuP = total > 0 ? (acc.neu / total) * 100 : 0
+      const negP = total > 0 ? (acc.neg / total) * 100 : 0
+      const dominantSentiment = acc.neg >= acc.pos && acc.neg >= acc.neu ? 'Negative'
+        : acc.pos >= acc.neg && acc.pos >= acc.neu ? 'Positive'
+        : 'Neutral'
+      return {
+        theme, total, positive: acc.pos, neutral: acc.neu, negative: acc.neg,
+        positivePct: posP, neutralPct: neuP, negativePct: negP,
+        dominantSentiment,
+        snippets: acc.snippets.sort((a, b) => {
+          // For negative-dominant themes, show negative snippets first
+          if (dominantSentiment === 'Negative') {
+            if (a.theme_sentiment === 'Negative' && b.theme_sentiment !== 'Negative') return -1
+            if (b.theme_sentiment === 'Negative' && a.theme_sentiment !== 'Negative') return 1
+          }
+          return b.run_date.localeCompare(a.run_date)
+        }),
+      }
+    })
+    .sort((a, b) => {
+      // Negative-dominant themes first, then by total
+      if (a.dominantSentiment === 'Negative' && b.dominantSentiment !== 'Negative') return -1
+      if (b.dominantSentiment === 'Negative' && a.dominantSentiment !== 'Negative') return 1
+      return b.total - a.total
+    })
 
   return {
     coMentionCount: relevant.length,
@@ -951,6 +1019,6 @@ export async function getCompetitorSentimentVsClay(
     clayNeutralPct: relevant.length > 0 ? (neu / relevant.length) * 100 : 0,
     clayNegativePct: relevant.length > 0 ? (neg / relevant.length) * 100 : 0,
     clayAvgScore: avgScore,
-    snippets,
+    themeGroups,
   }
 }
