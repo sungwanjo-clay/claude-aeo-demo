@@ -693,7 +693,7 @@ export default function CitationsPage() {
 
       {/* Citation Activity Chart */}
       <div style={CARD} className="p-4">
-        {loading ? <SkeletonChart /> : (
+        {(loading || loadingExtra) ? <SkeletonChart /> : (
           <CitationActivityChart competitorTs={competitorTs} citationRateKPI={citShare?.current} />
         )}
       </div>
