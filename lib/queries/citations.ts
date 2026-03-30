@@ -213,36 +213,55 @@ export async function getCompetitorCitationTimeseries(
   f: FilterParams,
   topN = 5
 ): Promise<{ date: string; domain: string; value: number }[]> {
-  // Use responses table so all filters (topic, branded, promptType) apply consistently.
-  // Citation rate per domain per day = responses_citing_domain / responses_with_any_citations
-  const { data } = await applyResponseFilters(
-    sb.from('responses').select('run_date, cited_domains'),
+  // Step 1: Get filtered response IDs (applies all filters: topic, branded, promptType, platform)
+  const { data: responses } = await applyResponseFilters(
+    sb.from('responses').select('id, run_date'),
     f
   ).limit(50000)
-  if (!data?.length) return []
+  if (!responses?.length) return []
 
-  const citingByDate = new Map<string, number>()         // date -> responses with any citations
-  const domainByDate = new Map<string, number>()         // `${date}|||${domain}` -> count
-  const domainTotals = new Map<string, number>()         // domain -> total across all dates
-
-  for (const r of data) {
+  // Build a map of response_id -> date for fast lookup
+  const responseIdToDate = new Map<string, string>()
+  for (const r of responses) {
     const date = (r.run_date ?? '').substring(0, 10)
-    if (!date) continue
-    const domains: string[] = Array.isArray(r.cited_domains) ? r.cited_domains : []
-    if (domains.length === 0) continue
-
-    citingByDate.set(date, (citingByDate.get(date) ?? 0) + 1)
-
-    for (const rawDomain of domains) {
-      const d = String(rawDomain).toLowerCase()
-      const key = d.includes('clay') ? 'clay.com' : d
-      const dk = `${date}|||${key}`
-      domainByDate.set(dk, (domainByDate.get(dk) ?? 0) + 1)
-      domainTotals.set(key, (domainTotals.get(key) ?? 0) + 1)
-    }
+    if (r.id && date) responseIdToDate.set(String(r.id), date)
   }
 
-  // Top N non-clay domains by total citations + always include clay.com
+  // Step 2: Query citation_domains by date + platform; filter to filtered responses in JS
+  let q = sb.from('citation_domains')
+    .select('domain, response_id')
+    .gte('run_date', f.startDate)
+    .lte('run_date', f.endDate)
+  if (f.platforms?.length) q = q.in('platform', f.platforms)
+  const { data: citations } = await (q as any).limit(100000)
+  if (!citations?.length) return []
+
+  // Step 3: Compute per-date unique response counts
+  // Denominator: unique response_ids with any citation entry per date
+  // Numerator: unique response_ids citing each domain per date
+  const citingByDate = new Map<string, Set<string>>()       // date -> Set<response_id>
+  const domainByDate = new Map<string, Set<string>>()       // `${date}|||${domain}` -> Set<response_id>
+  const domainTotals = new Map<string, number>()             // domain -> total unique responses
+
+  for (const c of citations as any[]) {
+    const rid = String(c.response_id)
+    const date = responseIdToDate.get(rid)
+    if (!date) continue                       // skip responses excluded by topic/branded/promptType filters
+    const d = (c.domain ?? '').toLowerCase()
+    if (!d) continue
+    const key = d.includes('clay') ? 'clay.com' : d
+
+    if (!citingByDate.has(date)) citingByDate.set(date, new Set())
+    citingByDate.get(date)!.add(rid)
+
+    const dk = `${date}|||${key}`
+    if (!domainByDate.has(dk)) domainByDate.set(dk, new Set())
+    const wasNew = !domainByDate.get(dk)!.has(rid)
+    domainByDate.get(dk)!.add(rid)
+    if (wasNew) domainTotals.set(key, (domainTotals.get(key) ?? 0) + 1)
+  }
+
+  // Top N non-clay domains by unique response count + always include clay.com
   const topNonClay = [...domainTotals.entries()]
     .filter(([d]) => !d.includes('clay'))
     .sort((a, b) => b[1] - a[1])
@@ -252,10 +271,10 @@ export async function getCompetitorCitationTimeseries(
 
   const result: { date: string; domain: string; value: number }[] = []
   for (const date of [...citingByDate.keys()].sort()) {
-    const total = citingByDate.get(date) ?? 0
+    const total = citingByDate.get(date)!.size
     if (total === 0) continue
     for (const domain of topDomains) {
-      const count = domainByDate.get(`${date}|||${domain}`) ?? 0
+      const count = domainByDate.get(`${date}|||${domain}`)?.size ?? 0
       result.push({ date, domain, value: (count / total) * 100 })
     }
   }
@@ -458,16 +477,18 @@ export async function getTopCitedDomainsEnhanced(
 
   if (f.platforms?.length) query = query.in('platform', f.platforms)
 
-  const [{ data, error }, totalRes] = await Promise.all([
-    query.limit(5000),
-    applyResponseFilters(sb.from('responses').select('id'), f).limit(20000),
-  ])
+  const { data, error } = await query.limit(5000)
 
   if (error) { console.error('getTopCitedDomainsEnhanced', error); return [] }
   if (!data?.length) return []
 
-  // Use total responses as denominator so share_pct matches the Citation Share KPI
-  const totalResponses = totalRes.data?.length ?? data.length
+  // Denominator = unique response_ids that appear in citation_domains (responses with any citation)
+  // This matches the Citation Rate KPI denominator
+  const allCitedResponseIds = new Set<string>()
+  for (const row of data as any[]) {
+    if (row.response_id) allCitedResponseIds.add(String(row.response_id))
+  }
+  const totalResponses = allCitedResponseIds.size || data.length
 
   type DomainAcc = {
     responseIds: Set<string>; is_clay: boolean; typeCounts: Map<string, number>
