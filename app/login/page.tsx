@@ -26,7 +26,7 @@ function LoginForm() {
       })
 
       if (res.ok) {
-        router.replace(from)
+        window.location.href = from
       } else {
         setError('Incorrect password — try again.')
         setPassword('')
