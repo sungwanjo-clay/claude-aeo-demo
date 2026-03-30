@@ -217,6 +217,7 @@ export default function VisibilityPage() {
             <p className="text-[12px] font-semibold py-8 text-center" style={{ color: 'rgba(26,25,21,0.35)' }}>No PMM use case data</p>
           )
         ) : (
+          <>
           <table className="w-full text-[13px]">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--clay-border-dashed)' }}>
@@ -293,6 +294,7 @@ export default function VisibilityPage() {
               {showAllPmm ? `Show top 10 ↑` : `Show all ${sortedPmmTable.length} PMM topics ↓`}
             </button>
           )}
+          </>
         )}
       </div>
     </div>

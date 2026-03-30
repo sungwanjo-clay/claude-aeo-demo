@@ -33,7 +33,6 @@ import { getPlatformColor, CHART_COLORS } from '@/lib/utils/colors'
 import { formatShortDate } from '@/lib/utils/formatters'
 import CompCitationProfile from '@/components/competitive/CompCitationProfile'
 import CompPMMComparison from '@/components/competitive/CompPMMComparison'
-import CompTopicGap from '@/components/competitive/CompTopicGap'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
@@ -700,13 +699,6 @@ export default function CompetitivePage() {
           onDrilldown={handlePMMDrilldown}
         />
       )}
-
-      {/* Topic Visibility Gap */}
-      <CompTopicGap
-        allRows={pmmRowsMap}
-        selectedComps={selectedComps}
-        loading={Object.keys(pmmRowsMap).length === 0}
-      />
 
       <SectionDivider title="Citation & Source Analysis" subtitle="Which sources cite Clay vs competitors" />
 
