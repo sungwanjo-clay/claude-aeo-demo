@@ -12,8 +12,9 @@ import {
   getClayURLsByType,
   getTopCitedDomainsEnhanced,
   getCitationTypeBreakdown,
+  getCitationRateByTopic,
 } from '@/lib/queries/citations'
-import type { ClayURLTypeGroup, TopDomainRow } from '@/lib/queries/citations'
+import type { ClayURLTypeGroup, TopDomainRow, TopicCitationRow } from '@/lib/queries/citations'
 import KpiCard from '@/components/cards/KpiCard'
 import { SkeletonCard, SkeletonChart } from '@/components/shared/Skeleton'
 import { formatShortDate } from '@/lib/utils/formatters'
@@ -550,6 +551,137 @@ function CitationActivityChart({ competitorTs }: {
   )
 }
 
+// ── Citation rate by prompt topic ──────────────────────────────────────────────
+function CitationRateByTopicChart({ data }: { data: TopicCitationRow[] }) {
+  const [sort, setSort] = useState<'any_citation_rate' | 'clay_citation_rate' | 'total_responses'>('any_citation_rate')
+  const [showAll, setShowAll] = useState(false)
+  const LIMIT = 10
+
+  const sorted = [...data].sort((a, b) => b[sort] - a[sort])
+  const visible = showAll ? sorted : sorted.slice(0, LIMIT)
+
+  if (!data.length) {
+    return (
+      <div className="flex items-center justify-center py-10 text-[13px]" style={{ color: 'rgba(26,25,21,0.35)' }}>
+        No topic citation data in this period
+      </div>
+    )
+  }
+
+  const maxRate = Math.max(...data.map(r => r.any_citation_rate), 1)
+
+  const SORT_OPTS: { key: typeof sort; label: string }[] = [
+    { key: 'any_citation_rate',  label: 'Citation rate' },
+    { key: 'clay_citation_rate', label: 'Clay cited' },
+    { key: 'total_responses',    label: 'Volume' },
+  ]
+
+  return (
+    <>
+      {/* Sort controls */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] font-bold uppercase tracking-wider mr-1" style={{ color: 'rgba(26,25,21,0.4)' }}>Sort by</span>
+          {SORT_OPTS.map(o => (
+            <button
+              key={o.key}
+              onClick={() => setSort(o.key)}
+              className="text-[11px] font-bold px-2.5 py-1 transition-all"
+              style={{
+                borderRadius: '99px',
+                background: sort === o.key ? 'var(--clay-black)' : 'transparent',
+                color: sort === o.key ? '#fff' : 'rgba(26,25,21,0.5)',
+                border: `1px solid ${sort === o.key ? 'var(--clay-black)' : 'rgba(26,25,21,0.15)'}`,
+              }}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+        {/* Legend */}
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: 'rgba(74,90,255,0.5)' }} />
+            <span className="text-[10px] font-semibold" style={{ color: 'rgba(26,25,21,0.55)' }}>Any citation</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: 'var(--clay-black)' }} />
+            <span className="text-[10px] font-semibold" style={{ color: 'rgba(26,25,21,0.55)' }}>Clay cited</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Horizontal bar rows */}
+      <div className="space-y-2.5">
+        {visible.map((row) => {
+          const anyCitWidth = `${(row.any_citation_rate / maxRate) * 100}%`
+          const clayCitWidth = `${(row.clay_citation_rate / maxRate) * 100}%`
+          const clayLeads = row.clay_citation_rate > 0
+          return (
+            <div key={row.topic}>
+              {/* Topic label + response count */}
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[12px] font-semibold leading-tight" style={{ color: 'var(--clay-black)' }}>
+                  {row.topic}
+                </span>
+                <span className="text-[10px] tabular-nums shrink-0 ml-3" style={{ color: 'rgba(26,25,21,0.4)' }}>
+                  {row.total_responses.toLocaleString()} responses
+                </span>
+              </div>
+
+              {/* Any-citation bar */}
+              <div className="relative mb-0.5" style={{ height: '14px' }}>
+                <div className="absolute inset-0 rounded-full overflow-hidden" style={{ background: 'rgba(26,25,21,0.05)' }}>
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{ width: anyCitWidth, background: 'rgba(74,90,255,0.35)' }}
+                  />
+                </div>
+                <span
+                  className="absolute right-0 top-0 h-full flex items-center text-[10px] font-bold tabular-nums pr-1"
+                  style={{ color: '#4A5AFF', minWidth: '38px', justifyContent: 'flex-end' }}
+                >
+                  {row.any_citation_rate.toFixed(1)}%
+                </span>
+              </div>
+
+              {/* Clay-citation bar */}
+              <div className="relative" style={{ height: '14px' }}>
+                <div className="absolute inset-0 rounded-full overflow-hidden" style={{ background: 'rgba(26,25,21,0.03)' }}>
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{ width: clayCitWidth, background: clayLeads ? 'var(--clay-black)' : 'rgba(26,25,21,0.15)' }}
+                  />
+                </div>
+                <span
+                  className="absolute right-0 top-0 h-full flex items-center text-[10px] font-bold tabular-nums pr-1"
+                  style={{ color: 'var(--clay-black)', minWidth: '38px', justifyContent: 'flex-end' }}
+                >
+                  {row.clay_citation_rate.toFixed(1)}%
+                </span>
+              </div>
+
+              {/* Divider */}
+              <div className="mt-2.5" style={{ borderBottom: '1px solid rgba(26,25,21,0.05)' }} />
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Show more / less */}
+      {sorted.length > LIMIT && (
+        <button
+          onClick={() => setShowAll(v => !v)}
+          className="w-full py-2 mt-3 text-[10px] font-bold uppercase tracking-wider hover:opacity-70 transition-opacity"
+          style={{ borderTop: '1px solid rgba(26,25,21,0.06)', color: 'rgba(26,25,21,0.4)', background: 'none', cursor: 'pointer' }}
+        >
+          {showAll ? `Show top ${LIMIT} ↑` : `Show all ${sorted.length} topics ↓`}
+        </button>
+      )}
+    </>
+  )
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 export default function CitationsPage() {
   const { toQueryParams } = useGlobalFilters()
@@ -565,6 +697,7 @@ export default function CitationsPage() {
   const [clayUrlTypes, setClayUrlTypes] = useState<ClayURLTypeGroup[]>([])
   const [topDomains, setTopDomains] = useState<TopDomainRow[]>([])
   const [citTypes, setCitTypes] = useState<{ type: string; count: number; pct: number }[]>([])
+  const [topicCitationData, setTopicCitationData] = useState<TopicCitationRow[]>([])
   const [domainSearch, setDomainSearch] = useState('')
   const [selectedType, setSelectedType] = useState<string | null>(null)
 
@@ -593,11 +726,13 @@ export default function CitationsPage() {
       getClayURLsByType(supabase, f).catch(() => []),
       getTopCitedDomainsEnhanced(supabase, f).catch(() => []),
       getCitationTypeBreakdown(supabase, f).catch(() => []),
-    ]).then(([compTs, urlTypes, domains, typeBreakdown]) => {
+      getCitationRateByTopic(supabase, f).catch(() => []),
+    ]).then(([compTs, urlTypes, domains, typeBreakdown, topicCit]) => {
       setCompetitorTs(compTs ?? [])
       setClayUrlTypes(urlTypes ?? [])
       setTopDomains(domains ?? [])
       setCitTypes(typeBreakdown ?? [])
+      setTopicCitationData(topicCit ?? [])
       setLoadingExtra(false)
     }).catch(() => setLoadingExtra(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -674,6 +809,20 @@ export default function CitationsPage() {
       <div style={CARD} className="p-4">
         {loading ? <SkeletonChart /> : (
           <CitationActivityChart competitorTs={competitorTs} />
+        )}
+      </div>
+
+      {/* Citation Rate by Prompt Topic */}
+      <div style={CARD} className="p-4">
+        <div className="flex items-center mb-1">
+          <span style={LABEL}>Citation Rate by Prompt Topic</span>
+          <InfoTip text="For each prompt topic, how often AI responses include any citation (blue bar) vs. specifically citing Clay (dark bar). Topics sorted by citation rate by default — use sort controls to reorder." />
+        </div>
+        <p className="text-xs mb-4" style={{ color: 'rgba(26,25,21,0.45)' }}>
+          Which prompt categories trigger citations most — and where Clay earns its share.
+        </p>
+        {loadingExtra ? <SkeletonChart /> : (
+          <CitationRateByTopicChart data={topicCitationData} />
         )}
       </div>
 
