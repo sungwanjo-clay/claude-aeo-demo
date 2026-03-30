@@ -47,6 +47,7 @@ export default function VisibilityPage() {
   const [pmmView, setPmmView] = useState<'chart' | 'table'>('chart')
   const [pmmSort, setPmmSort] = useState<'visibility_score' | 'total_responses' | 'delta'>('visibility_score')
   const [pmmSortDir, setPmmSortDir] = useState<'asc' | 'desc'>('desc')
+  const [showAllPmm, setShowAllPmm] = useState(false)
 
   useEffect(() => {
     setLoading(true)
@@ -247,7 +248,7 @@ export default function VisibilityPage() {
               </tr>
             </thead>
             <tbody>
-              {sortedPmmTable.map((row, i) => {
+              {(showAllPmm ? sortedPmmTable : sortedPmmTable.slice(0, 10)).map((row, i) => {
                 const isUp = row.delta != null ? row.delta > 0 : null
                 return (
                   <tr key={row.pmm_use_case} style={{ borderBottom: '1px solid rgba(26,25,21,0.05)' }}>
@@ -283,6 +284,15 @@ export default function VisibilityPage() {
               })}
             </tbody>
           </table>
+          {sortedPmmTable.length > 10 && (
+            <button
+              onClick={() => setShowAllPmm(v => !v)}
+              className="w-full py-2 text-[10px] font-bold uppercase tracking-wider hover:opacity-70 transition-opacity"
+              style={{ borderTop: '1px solid rgba(26,25,21,0.06)', color: 'rgba(26,25,21,0.4)', background: 'none', border: 'none', cursor: 'pointer' }}
+            >
+              {showAllPmm ? `Show top 10 ↑` : `Show all ${sortedPmmTable.length} PMM topics ↓`}
+            </button>
+          )}
         )}
       </div>
     </div>

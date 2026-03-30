@@ -208,6 +208,28 @@ function PromptRow({ p }: { p: FlatPrompt }) {
   )
 }
 
+// ── Paginated prompt list ──────────────────────────────────────────────────────
+const PROMPT_PAGE_SIZE = 10
+function PromptList({ prompts }: { prompts: FlatPrompt[] }) {
+  const [visible, setVisible] = useState(PROMPT_PAGE_SIZE)
+  const shown = prompts.slice(0, visible)
+  const remaining = prompts.length - visible
+  return (
+    <div className="space-y-2">
+      {shown.map(p => <PromptRow key={p.prompt_id} p={p} />)}
+      {remaining > 0 && (
+        <button
+          onClick={() => setVisible(v => v + PROMPT_PAGE_SIZE)}
+          className="w-full py-2 text-[10px] font-bold uppercase tracking-wider hover:opacity-70 transition-opacity"
+          style={{ borderTop: '1px solid rgba(26,25,21,0.06)', color: 'rgba(26,25,21,0.4)', background: 'none', border: 'none', cursor: 'pointer' }}
+        >
+          Show {Math.min(remaining, PROMPT_PAGE_SIZE)} more of {remaining} remaining ↓
+        </button>
+      )}
+    </div>
+  )
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function McpPage() {
   const { toQueryParams } = useGlobalFilters()
@@ -406,9 +428,7 @@ export default function McpPage() {
             No MCP / Claygent mentions found in this period
           </div>
         ) : (
-          <div className="space-y-2">
-            {flatPrompts.map(p => <PromptRow key={p.prompt_id} p={p} />)}
-          </div>
+          <PromptList prompts={flatPrompts} />
         )}
       </div>
 

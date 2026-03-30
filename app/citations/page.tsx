@@ -164,8 +164,11 @@ function CitationCategoryBar({ types, selected, onSelect }: {
 }
 
 // ── Domain row ─────────────────────────────────────────────────────────────────
+const URL_LIMIT = 10
+
 function DomainRowItem({ row, rank }: { row: TopDomainRow; rank: number }) {
   const [open, setOpen] = useState(false)
+  const [showAllUrls, setShowAllUrls] = useState(false)
   const color = typeColor(row.citation_type ?? 'Other')
   const subdomainCount = countSubdomains(row.domain, row.top_urls)
 
@@ -220,7 +223,7 @@ function DomainRowItem({ row, rank }: { row: TopDomainRow; rank: number }) {
                   <span key={h} className={i > 0 ? 'text-right' : ''} style={{ ...LABEL, fontSize: '9px' }}>{h}</span>
                 ))}
               </div>
-              {row.top_urls.map(u => {
+              {(showAllUrls ? row.top_urls : row.top_urls.slice(0, URL_LIMIT)).map(u => {
                 const uc = urlTypeColor(u.url_type ?? 'Other')
                 return (
                   <div key={u.url} className="grid gap-2 items-start px-2 py-1.5 rounded hover:bg-[rgba(26,25,21,0.02)]"
@@ -261,6 +264,15 @@ function DomainRowItem({ row, rank }: { row: TopDomainRow; rank: number }) {
                   </div>
                 )
               })}
+              {row.top_urls.length > URL_LIMIT && (
+                <button
+                  onClick={e => { e.stopPropagation(); setShowAllUrls(v => !v) }}
+                  className="w-full py-1.5 text-[10px] font-bold uppercase tracking-wider hover:opacity-70 transition-opacity mt-1"
+                  style={{ borderTop: '1px solid rgba(26,25,21,0.06)', color: 'rgba(26,25,21,0.4)', background: 'none', border: 'none', cursor: 'pointer' }}
+                >
+                  {showAllUrls ? `Show top ${URL_LIMIT} ↑` : `Show all ${row.top_urls.length} URLs ↓`}
+                </button>
+              )}
             </div>
           </td>
         </tr>

@@ -52,10 +52,13 @@ function PlatformBadge({ platform }: { platform: string }) {
   )
 }
 
+const NARRATIVE_PAGE_SIZE = 10
+
 function NarrativeFeed({ narratives, loading }: { narratives: NarrativeGroup[]; loading: boolean }) {
   const [filter, setFilter] = useState<SentimentFilter>('all')
   const [search, setSearch] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [visibleCount, setVisibleCount] = useState(NARRATIVE_PAGE_SIZE)
 
   const counts = {
     Negative: narratives.filter(n => n.sentiment === 'Negative').length,
@@ -66,6 +69,8 @@ function NarrativeFeed({ narratives, loading }: { narratives: NarrativeGroup[]; 
   const filtered = narratives
     .filter(n => filter === 'all' || n.sentiment === filter)
     .filter(n => !search || n.theme.toLowerCase().includes(search.toLowerCase()) || n.snippets.some(s => s.text.toLowerCase().includes(search.toLowerCase())))
+  const visibleItems = filtered.slice(0, visibleCount)
+  const remaining = filtered.length - visibleCount
 
   const FILTERS: { key: SentimentFilter; label: string; count: number }[] = [
     { key: 'all', label: 'All', count: narratives.length },
@@ -95,7 +100,7 @@ function NarrativeFeed({ narratives, loading }: { narratives: NarrativeGroup[]; 
             <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'rgba(26,25,21,0.35)' }} />
             <input
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={e => { setSearch(e.target.value); setVisibleCount(NARRATIVE_PAGE_SIZE) }}
               placeholder="Search themes or snippets…"
               className="pl-7 pr-3 py-1.5 text-[12px] font-medium focus:outline-none"
               style={{ background: 'rgba(26,25,21,0.04)', border: '1px solid var(--clay-border-dashed)', borderRadius: '8px', width: '220px', color: 'var(--clay-black)' }}
@@ -111,7 +116,7 @@ function NarrativeFeed({ narratives, loading }: { narratives: NarrativeGroup[]; 
             return (
               <button
                 key={key}
-                onClick={() => setFilter(key)}
+                onClick={() => { setFilter(key); setVisibleCount(NARRATIVE_PAGE_SIZE) }}
                 className="flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-bold transition-all"
                 style={{
                   background: isActive ? (style ? style.bg : 'rgba(26,25,21,0.08)') : 'transparent',
@@ -140,7 +145,7 @@ function NarrativeFeed({ narratives, loading }: { narratives: NarrativeGroup[]; 
         <div className="py-12 text-center text-[13px]" style={{ color: 'rgba(26,25,21,0.35)' }}>No narratives found</div>
       ) : (
         <div>
-          {filtered.map((item, idx) => {
+          {visibleItems.map((item, idx) => {
             const style = getSentimentStyle(item.sentiment)
             const key = `${item.theme}|||${item.sentiment}`
             const isExpanded = expanded.has(key)
@@ -251,18 +256,32 @@ function NarrativeFeed({ narratives, loading }: { narratives: NarrativeGroup[]; 
               </div>
             )
           })}
+          {remaining > 0 && (
+            <button
+              onClick={() => setVisibleCount(v => v + NARRATIVE_PAGE_SIZE)}
+              className="w-full py-3 text-[11px] font-bold uppercase tracking-wider hover:opacity-70 transition-opacity"
+              style={{ borderTop: '1px solid rgba(26,25,21,0.06)', color: 'rgba(26,25,21,0.45)', background: 'none', border: 'none', cursor: 'pointer' }}
+            >
+              Show {Math.min(remaining, NARRATIVE_PAGE_SIZE)} more · {remaining} remaining ↓
+            </button>
+          )}
         </div>
       )}
     </div>
   )
 }
 
+const FRAMING_PAGE_SIZE = 10
+
 function CompetitiveFraming({ items, loading }: { items: PositioningEntry[]; loading: boolean }) {
   const topics = [...new Set(items.map(i => i.topic))].sort()
   const [activeTopic, setActiveTopic] = useState<string>('all')
   const [expandedIdx, setExpandedIdx] = useState<Set<number>>(new Set())
+  const [visibleCount, setVisibleCount] = useState(FRAMING_PAGE_SIZE)
 
   const filtered = activeTopic === 'all' ? items : items.filter(i => i.topic === activeTopic)
+  const visibleItems = filtered.slice(0, visibleCount)
+  const framingRemaining = filtered.length - visibleCount
 
   return (
     <div style={CARD} className="overflow-hidden">
@@ -297,7 +316,7 @@ function CompetitiveFraming({ items, loading }: { items: PositioningEntry[]; loa
             {topics.slice(0, 8).map(t => (
               <button
                 key={t}
-                onClick={() => setActiveTopic(t)}
+                onClick={() => { setActiveTopic(t); setVisibleCount(FRAMING_PAGE_SIZE) }}
                 className="px-2.5 py-1 rounded text-[11px] font-bold transition-all"
                 style={{
                   background: activeTopic === t ? 'rgba(74,90,255,0.1)' : 'transparent',
@@ -321,7 +340,7 @@ function CompetitiveFraming({ items, loading }: { items: PositioningEntry[]; loa
         <div className="py-12 text-center text-[13px]" style={{ color: 'rgba(26,25,21,0.35)' }}>No positioning data</div>
       ) : (
         <div>
-          {filtered.slice(0, 30).map((item, i) => {
+          {visibleItems.map((item, i) => {
             const isExpanded = expandedIdx.has(i)
             const isLong = item.snippet.length > 180
             const displayText = isExpanded || !isLong ? item.snippet : item.snippet.slice(0, 180) + '…'
@@ -358,10 +377,14 @@ function CompetitiveFraming({ items, loading }: { items: PositioningEntry[]; loa
               </div>
             )
           })}
-          {filtered.length > 30 && (
-            <div className="px-4 py-2 text-[11px]" style={{ color: 'rgba(26,25,21,0.4)' }}>
-              Showing 30 of {filtered.length} entries
-            </div>
+          {framingRemaining > 0 && (
+            <button
+              onClick={() => setVisibleCount(v => v + FRAMING_PAGE_SIZE)}
+              className="w-full py-3 text-[11px] font-bold uppercase tracking-wider hover:opacity-70 transition-opacity"
+              style={{ borderTop: '1px solid rgba(26,25,21,0.06)', color: 'rgba(26,25,21,0.45)', background: 'none', border: 'none', cursor: 'pointer' }}
+            >
+              Show {Math.min(framingRemaining, FRAMING_PAGE_SIZE)} more · {framingRemaining} remaining ↓
+            </button>
           )}
         </div>
       )}
