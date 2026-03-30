@@ -75,8 +75,10 @@ function DeltaBadge({ delta }: { delta: number | null }) {
       background: pos ? 'var(--clay-lime)' : '#FFE0DD',
       color: pos ? 'var(--clay-black)' : 'var(--clay-pomegranate)',
       borderRadius: '4px', padding: '1px 6px', fontSize: '11px', fontWeight: 700,
+      display: 'inline-flex', alignItems: 'center', gap: '2px',
     }}>
-      {pos ? '+' : ''}{delta.toFixed(1)}%
+      <span>{pos ? '↑' : '↓'}</span>
+      <span>{Math.abs(delta).toFixed(1)}%</span>
     </span>
   )
 }
@@ -206,6 +208,7 @@ export default function CompetitivePage() {
   // Per-competitor KPIs
   const [kpisMap, setKpisMap] = useState<Record<string, AnyKPIs>>({})
   const [tsData, setTsData] = useState<{ date: string; [k: string]: string | number }[]>([])
+  const [chartCompLines, setChartCompLines] = useState<string[]>([]) // competitors actually rendered in chart
   const [heatmap, setHeatmap] = useState<HeatmapCell[]>([])
   const [movers, setMovers] = useState<WinnerLoser[]>([])
 
@@ -261,10 +264,13 @@ export default function CompetitivePage() {
     return () => document.removeEventListener('mousedown', handleOutside)
   }, [dropdownOpen])
 
-  // Fast effect: KPIs + timeseries + heatmap + movers for all selectedComps
+  // Fast effect: KPIs + timeseries + heatmap + movers
+  // In default view (only Clay selected), the chart auto-shows Clay + top 5 competitors
   useEffect(() => {
     if (selectedComps.length === 0) return
     setLoading(true)
+
+    const isDefaultView = selectedComps.length === 1 && selectedComps[0] === 'Clay'
 
     const kpiPromises = selectedComps.map(comp => {
       const isClay = comp === 'Clay'
@@ -295,14 +301,28 @@ export default function CompetitivePage() {
       return p.then(kpi => ({ comp, kpi }))
     })
 
-    // Build merged timeseries: Clay always present + each non-Clay competitor
-    const buildTs = async () => {
+    // Load KPIs + heatmap + movers first; movers determines which comps go in the default chart
+    Promise.all([
+      Promise.all(kpiPromises),
+      getPlatformHeatmap(supabase, f).catch(() => []),
+      getWinnersAndLosers(supabase, f).catch(() => []),
+    ]).then(async ([kpiResults, heat, wl]) => {
+      // In default view, chart shows top 5 competitors by visibility
+      const top5 = (wl as WinnerLoser[])
+        .filter(w => w.competitor_name !== 'Clay')
+        .sort((a, b) => b.current - a.current)
+        .slice(0, 5)
+        .map(w => w.competitor_name)
+
+      const compsForChart = isDefaultView ? top5 : selectedComps.filter(c => c !== 'Clay')
+      setChartCompLines(compsForChart)
+
+      // Build merged timeseries: Clay + determined competitors
       const clayTs = await getClayVisibilityTimeseries(supabase, f).catch(() => [])
-      const nonClayComps = selectedComps.filter(c => c !== 'Clay')
       const dateSet = new Set<string>(clayTs.map(r => r.date))
       const compMap: Record<string, Record<string, number>> = {}
 
-      await Promise.all(nonClayComps.map(async comp => {
+      await Promise.all(compsForChart.map(async comp => {
         const rows = await getCompetitorVsClayTimeseries(supabase, f, comp).catch(() => [])
         compMap[comp] = {}
         for (const r of rows) {
@@ -313,21 +333,14 @@ export default function CompetitivePage() {
 
       const allDates = [...dateSet].sort()
       const clayDateMap = new Map(clayTs.map(r => [r.date, r.value]))
-      return allDates.map(date => {
+      const ts = allDates.map(date => {
         const row: { date: string; [k: string]: string | number } = { date, Clay: clayDateMap.get(date) ?? 0 }
-        for (const comp of nonClayComps) {
+        for (const comp of compsForChart) {
           row[comp] = compMap[comp]?.[date] ?? 0
         }
         return row
       })
-    }
 
-    Promise.all([
-      Promise.all(kpiPromises),
-      buildTs(),
-      getPlatformHeatmap(supabase, f).catch(() => []),
-      getWinnersAndLosers(supabase, f).catch(() => []),
-    ]).then(([kpiResults, ts, heat, wl]) => {
       const newMap: Record<string, AnyKPIs> = {}
       for (const { comp, kpi } of kpiResults) {
         if (kpi) newMap[comp] = kpi
@@ -588,9 +601,9 @@ export default function CompetitivePage() {
           <div style={LABEL} className="mb-3">
             {isMulti
               ? `Visibility Over Time — ${selectedComps.join(' vs ')}`
-              : selectedComps[0] === 'Clay'
-                ? 'Clay Visibility — Trend Over Time'
-                : `Clay vs. ${selectedComps[0]} — Visibility Over Time`}
+              : chartCompLines.length > 0
+                ? `Clay vs Top Competitors — Visibility Over Time`
+                : `Clay Visibility — Trend Over Time`}
           </div>
           {loading ? <SkeletonChart /> : tsData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
@@ -604,12 +617,12 @@ export default function CompetitivePage() {
                   formatter={(val: any, name: any) => [`${Number(val).toFixed(1)}%`, name]}
                   contentStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans', border: '1px solid var(--clay-border)', borderRadius: '8px' }}
                 />
-                {(isMulti || nonClaySelected.length > 0) && (
+                {chartCompLines.length > 0 && (
                   <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
                 )}
                 <Line type="monotone" dataKey="Clay" stroke="var(--clay-black)" strokeWidth={2.5}
                   dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="Clay" />
-                {nonClaySelected.map((comp, i) => (
+                {chartCompLines.map((comp, i) => (
                   <Line key={comp} type="monotone" dataKey={comp}
                     stroke={COMP_COLORS[i % COMP_COLORS.length]}
                     strokeWidth={2} dot={{ r: 2, strokeWidth: 0 }} activeDot={{ r: 4 }} name={comp} />
@@ -655,19 +668,6 @@ export default function CompetitivePage() {
             </div>
           ))}
 
-          {!loading && emerging.length > 0 && (
-            <div style={{ borderTop: '1px solid var(--clay-border)', marginTop: '12px', paddingTop: '12px' }}>
-              <div style={LABEL} className="mb-2">New This Period</div>
-              {emerging.slice(0, 3).map(w => (
-                <div key={w.competitor_name} className="flex items-center gap-2 py-1.5"
-                  style={{ borderBottom: '1px solid rgba(26,25,21,0.04)' }}>
-                  <span className="flex-1 text-[13px] font-semibold truncate" style={{ color: 'var(--clay-black)' }}>{w.competitor_name}</span>
-                  <span className="text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.55)' }}>{w.current.toFixed(1)}%</span>
-                  <span style={{ background: 'var(--clay-lime)', color: 'var(--clay-black)', borderRadius: '3px', padding: '1px 5px', fontSize: '9px', fontWeight: 700 }}>New</span>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </div>
 
