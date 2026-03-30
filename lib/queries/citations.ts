@@ -82,7 +82,7 @@ export async function getCitationShareTimeseries(
   const { data } = await applyResponseFilters(
     sb.from('responses').select('run_date, platform, cited_domains'),
     f
-  )
+  ).limit(50000)
   if (!data) return []
 
   const map = new Map<string, { clayCited: number; total: number }>()
@@ -111,13 +111,13 @@ export async function getCitationGaps(
   // Competitor domains cited when Clay is not mentioned
   let query = sb
     .from('citation_domains')
-    .select('domain, topic, citation_type')
+    .select('domain, citation_type, responses(topic)')
     .eq('citation_type', 'Competition')
     .gte('run_date', f.startDate)
     .lte('run_date', f.endDate)
 
   if (f.platforms.length > 0) query = query.in('platform', f.platforms)
-  const { data } = await query
+  const { data } = await (query as any).limit(10000)
 
   // Also get total per topic to calc pct
   const topicQuery = await applyResponseFilters(
@@ -132,9 +132,10 @@ export async function getCitationGaps(
 
   if (!data) return []
   const map = new Map<string, { count: number; topic: string }>()
-  for (const row of data) {
-    const key = `${row.domain}|||${row.topic ?? 'Unknown'}`
-    const cur = map.get(key) ?? { count: 0, topic: row.topic ?? 'Unknown' }
+  for (const row of data as any[]) {
+    const topic: string = row.responses?.topic ?? 'Unknown'
+    const key = `${row.domain}|||${topic}`
+    const cur = map.get(key) ?? { count: 0, topic }
     cur.count++
     map.set(key, cur)
   }
@@ -210,7 +211,7 @@ export async function getCompetitorCitationTimeseries(
   const { data: responses } = await applyResponseFilters(
     sb.from('responses').select('run_date'),
     f
-  )
+  ).limit(50000)
   if (!responses?.length) return []
   const totalByDate = new Map<string, number>()
   for (const r of responses) {
@@ -221,7 +222,7 @@ export async function getCompetitorCitationTimeseries(
   let q = sb.from('citation_domains').select('domain, run_date')
     .gte('run_date', f.startDate).lte('run_date', f.endDate)
   if (f.platforms?.length) q = q.in('platform', f.platforms)
-  const { data } = await q
+  const { data } = await (q as any).limit(50000)
   if (!data?.length) return []
 
   // Top N non-clay domains overall
@@ -357,7 +358,7 @@ export async function getClayURLsByType(
 ): Promise<ClayURLTypeGroup[]> {
   let query = sb
     .from('citation_domains')
-    .select('url, title, url_type, citation_type, platform, topic, domain')
+    .select('url, title, url_type, citation_type, platform, domain, responses(topic)')
     .ilike('domain', '%clay%')
     .gte('run_date', f.startDate)
     .lte('run_date', f.endDate)
@@ -369,7 +370,7 @@ export async function getClayURLsByType(
   if (!data?.length) return []
 
   // Also filter client-side for safety
-  const clayRows = data.filter(r => (r.domain ?? '').toLowerCase().includes('clay'))
+  const clayRows = data.filter((r: any) => (r.domain ?? '').toLowerCase().includes('clay'))
 
   if (!clayRows.length) return []
   const grandTotal = clayRows.length
@@ -377,16 +378,17 @@ export async function getClayURLsByType(
   type URLAcc = { count: number; title: string | null; topics: Set<string>; platforms: Set<string>; citation_type: string | null }
   const typeMap = new Map<string, Map<string, URLAcc>>()
 
-  for (const row of clayRows) {
+  for (const row of clayRows as any[]) {
     const ut = row.url_type ?? 'Other'
     const url = row.url ?? ''
     if (!url) continue
+    const topic: string | null = row.responses?.topic ?? null
 
     if (!typeMap.has(ut)) typeMap.set(ut, new Map())
     const urlMap = typeMap.get(ut)!
     const cur = urlMap.get(url) ?? { count: 0, title: row.title ?? null, topics: new Set(), platforms: new Set(), citation_type: row.citation_type ?? null }
     cur.count++
-    if (row.topic) cur.topics.add(row.topic)
+    if (topic) cur.topics.add(topic)
     if (row.platform) cur.platforms.add(row.platform)
     urlMap.set(url, cur)
   }
@@ -436,7 +438,7 @@ export async function getTopCitedDomainsEnhanced(
 ): Promise<TopDomainRow[]> {
   let query = sb
     .from('citation_domains')
-    .select('domain, url, title, citation_type, url_type, topic')
+    .select('domain, url, title, citation_type, url_type, responses(topic)')
     .gte('run_date', f.startDate)
     .lte('run_date', f.endDate)
 
@@ -453,16 +455,17 @@ export async function getTopCitedDomainsEnhanced(
   }
   const domainMap = new Map<string, DomainAcc>()
 
-  for (const row of data) {
+  for (const row of data as any[]) {
     const d = (row.domain ?? '').toLowerCase()
     if (!d) continue
+    const topic: string | null = row.responses?.topic ?? null
     const cur = domainMap.get(d) ?? { count: 0, is_clay: d.includes('clay.com'), typeCounts: new Map(), urls: new Map() }
     cur.count++
     if (row.citation_type) cur.typeCounts.set(row.citation_type, (cur.typeCounts.get(row.citation_type) ?? 0) + 1)
     if (row.url) {
       const u = cur.urls.get(row.url) ?? { title: row.title ?? null, count: 0, url_type: row.url_type ?? null, topics: new Set<string>() }
       u.count++
-      if (row.topic) u.topics.add(row.topic)
+      if (topic) u.topics.add(topic)
       cur.urls.set(row.url, u)
     }
     domainMap.set(d, cur)
