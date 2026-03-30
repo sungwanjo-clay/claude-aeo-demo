@@ -958,7 +958,8 @@ export async function getCompetitorSentimentVsClay(
   const avgScore = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null
 
   // Build theme groups: theme → { pos, neu, neg, snippets[] }
-  type ThemeAcc = { pos: number; neu: number; neg: number; snippets: SentimentThemeSnippet[] }
+  // Deduplicate snippets by prompt_id within each theme — same prompt won't appear twice in one theme
+  type ThemeAcc = { pos: number; neu: number; neg: number; snippets: SentimentThemeSnippet[]; seenPromptIds: Set<string> }
   const themeMap = new Map<string, ThemeAcc>()
 
   for (const r of relevant) {
@@ -967,15 +968,17 @@ export async function getCompetitorSentimentVsClay(
 
     for (const t of themes) {
       if (!t.theme) continue
-      const acc = themeMap.get(t.theme) ?? { pos: 0, neu: 0, neg: 0, snippets: [] }
+      const acc = themeMap.get(t.theme) ?? { pos: 0, neu: 0, neg: 0, snippets: [], seenPromptIds: new Set() }
 
       const ts = t.sentiment ?? ''
       if (ts === 'Positive') acc.pos++
       else if (ts === 'Negative') acc.neg++
       else acc.neu++
 
-      // Only add snippet if there's some useful content (cap per theme)
-      if (acc.snippets.length < 30) {
+      // Deduplicate by prompt_id: only add one snippet per unique prompt per theme
+      const promptKey = r.prompt_id ?? r.id
+      if (acc.snippets.length < 30 && !acc.seenPromptIds.has(promptKey)) {
+        acc.seenPromptIds.add(promptKey)
         acc.snippets.push({
           id: r.id,
           platform: r.platform ?? '',
