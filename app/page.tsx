@@ -147,6 +147,16 @@ export default function HomePage() {
   const visAllVals = visChartData.flatMap(r => Object.entries(r).filter(([k]) => k !== 'date').map(([, v]) => Number(v)))
   const visYMax = Math.min(100, Math.ceil(Math.max(...visAllVals, 1) * 1.2 / 5) * 5)
 
+  // Re-sort competitors with Clay's patched score so ranks reflect displayed numbers
+  const sortedCompetitors = [...competitors]
+    .map(row => ({
+      ...row,
+      _displayScore: row.competitor_name === 'Clay' && visibility?.current != null
+        ? visibility.current
+        : (row.visibility_score ?? row.sov_pct ?? 0),
+    }))
+    .sort((a, b) => b._displayScore - a._displayScore)
+
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between">
@@ -301,12 +311,9 @@ export default function HomePage() {
           ) : competitors.length > 0 ? (
             <table className="w-full">
               <tbody>
-                {competitors.map((row, idx) => {
+                {sortedCompetitors.map((row, idx) => {
                   const isClay = row.competitor_name === 'Clay'
-                  // For Clay, use the KPI visibility score so the numbers match
-                  const score = isClay && visibility?.current != null
-                    ? visibility.current
-                    : (row.visibility_score ?? row.sov_pct)
+                  const score = row._displayScore
                   const delta = isClay ? visDelta() : (row.delta ?? null)
                   return (
                     <tr key={row.competitor_name} style={{ borderBottom: '1px solid rgba(26,25,21,0.05)' }}>

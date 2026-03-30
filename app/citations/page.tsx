@@ -625,11 +625,11 @@ export default function CitationsPage() {
   const countDelta = citCount != null ? citCount.current - citCount.previous : null
   const totalClayCitations = clayUrlTypes.reduce((s, g) => s + g.total, 0)
 
-  // Filter + search
+  // Filter + search — always re-sort descending by citation_count so rank is correct after filter
   const displayDomains = useMemo(() => {
     let list = selectedType ? topDomains.filter(d => d.citation_type === selectedType) : topDomains.slice(0, 20)
     if (domainSearch) list = list.filter(d => d.domain.toLowerCase().includes(domainSearch.toLowerCase()))
-    return list
+    return [...list].sort((a, b) => b.citation_count - a.citation_count)
   }, [topDomains, selectedType, domainSearch])
 
   // Aggregate all domains' URLs by url_type (for Content Types section)
