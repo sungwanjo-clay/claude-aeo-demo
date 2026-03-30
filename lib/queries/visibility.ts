@@ -521,6 +521,7 @@ export interface MentionResponseRow {
   run_date: string
   snippet: string | null
   response_text: string | null
+  brand_sentiment: string | null
   other_cited_domains: string[]
 }
 
@@ -553,7 +554,7 @@ export async function getMentionBreakdown(
 
   const { data } = await applyFilters(
     sb.from('responses').select(
-      `id, prompt_id, platform, run_date, topic, cited_domains, response_text, ${column}, ${snippetCol}`
+      `id, prompt_id, platform, run_date, topic, cited_domains, response_text, brand_sentiment, ${column}, ${snippetCol}`
     ),
     f
   ).eq(column, 'Yes')
@@ -606,6 +607,7 @@ export async function getMentionBreakdown(
       run_date: (row.run_date ?? '').substring(0, 10),
       snippet: row[snippetCol] ?? null,
       response_text: row.response_text ?? null,
+      brand_sentiment: row.brand_sentiment ?? null,
       other_cited_domains: otherDomains,
     })
   }
