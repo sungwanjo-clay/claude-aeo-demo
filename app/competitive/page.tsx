@@ -125,6 +125,20 @@ function CompTabs({
   )
 }
 
+// ── Section divider ───────────────────────────────────────────────────────────
+function SectionDivider({ title, subtitle }: { title: string; subtitle?: string }) {
+  return (
+    <div className="flex items-center gap-3 pt-2">
+      <div className="flex-1 h-px" style={{ background: 'var(--clay-border)' }} />
+      <div className="text-center shrink-0">
+        <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'rgba(26,25,21,0.4)' }}>{title}</p>
+        {subtitle && <p className="text-[10px]" style={{ color: 'rgba(26,25,21,0.3)' }}>{subtitle}</p>}
+      </div>
+      <div className="flex-1 h-px" style={{ background: 'var(--clay-border)' }} />
+    </div>
+  )
+}
+
 // ── KPI comparison table (multi-select) ───────────────────────────────────────
 function KpiCompTable({ kpisMap, competitors }: { kpisMap: Record<string, AnyKPIs>; competitors: string[] }) {
   const metrics = [
@@ -583,6 +597,8 @@ export default function CompetitivePage() {
         )
       })() : null}
 
+      <SectionDivider title="Market Position" subtitle="Visibility benchmarks & trends" />
+
       {/* Trend chart + static Top Competitors / Movers */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
@@ -659,6 +675,8 @@ export default function CompetitivePage() {
         </div>
       </div>
 
+      <SectionDivider title="Topic Intelligence" subtitle="Where Clay wins and loses by use case" />
+
       {/* PMM Topic Comparison */}
       {Object.keys(pmmRowsMap).length === 0 ? (
         <div style={CARD} className="p-4">
@@ -682,6 +700,8 @@ export default function CompetitivePage() {
         loading={Object.keys(pmmRowsMap).length === 0}
       />
 
+      <SectionDivider title="Citation & Source Analysis" subtitle="Which sources cite Clay vs competitors" />
+
       {/* Citation Profile */}
       {loadingExtra ? (
         <div style={CARD} className="p-4">
@@ -699,6 +719,8 @@ export default function CompetitivePage() {
           headerSlot={drillTabs}
         />
       )}
+
+      <SectionDivider title="Platform Coverage" subtitle="Visibility score across all AI platforms" />
 
       {/* Platform Heatmap */}
       <div style={CARD} className="p-4">

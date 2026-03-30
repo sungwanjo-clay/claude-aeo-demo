@@ -167,3 +167,86 @@ export async function getPositioningSnippets(
       prompt_text: '',
     }))
 }
+
+export interface NarrativeGroup {
+  theme: string
+  sentiment: 'Positive' | 'Neutral' | 'Negative'
+  occurrences: number
+  snippets: Array<{
+    text: string
+    platform: string
+    topic: string
+    date: string
+  }>
+}
+
+export interface PositioningEntry {
+  topic: string
+  platform: string
+  snippet: string
+  date: string
+}
+
+export async function getSentimentNarratives(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<NarrativeGroup[]> {
+  const { data } = await applyFilters(
+    sb.from('responses').select('brand_sentiment, themes, topic, platform, run_date, clay_mentioned'),
+    f
+  ).limit(5000)
+  if (!data) return []
+
+  const map = new Map<string, { sentiment: string; occurrences: number; snippets: Array<{ text: string; platform: string; topic: string; date: string }> }>()
+
+  for (const row of data.filter((r: any) => r.clay_mentioned === 'Yes')) {
+    const themes = Array.isArray(row.themes) ? row.themes : []
+    for (const t of themes) {
+      if (!t.theme) continue
+      const sentiment = (t.sentiment ?? row.brand_sentiment ?? 'Neutral') as string
+      const key = `${t.theme}|||${sentiment}`
+      if (!map.has(key)) map.set(key, { sentiment, occurrences: 0, snippets: [] })
+      const cur = map.get(key)!
+      cur.occurrences++
+      if (t.snippet) {
+        cur.snippets.push({
+          text: t.snippet,
+          platform: row.platform ?? '',
+          topic: row.topic ?? '',
+          date: row.run_date?.split('T')[0] ?? '',
+        })
+      }
+    }
+  }
+
+  const ORDER: Record<string, number> = { Negative: 0, Neutral: 1, Positive: 2 }
+  return Array.from(map.entries())
+    .map(([key, val]) => {
+      const [theme] = key.split('|||')
+      return { theme, sentiment: val.sentiment as 'Positive' | 'Neutral' | 'Negative', occurrences: val.occurrences, snippets: val.snippets }
+    })
+    .sort((a, b) => {
+      const so = (ORDER[a.sentiment] ?? 1) - (ORDER[b.sentiment] ?? 1)
+      return so !== 0 ? so : b.occurrences - a.occurrences
+    })
+}
+
+export async function getCompetitivePositioningEntries(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<PositioningEntry[]> {
+  const { data } = await applyFilters(
+    sb.from('responses').select('positioning_vs_competitors, topic, platform, run_date, clay_mentioned'),
+    f
+  ).limit(2000)
+  if (!data) return []
+  return data
+    .filter((r: any) => r.clay_mentioned === 'Yes' && r.positioning_vs_competitors)
+    .map((r: any) => ({
+      topic: r.topic ?? 'General',
+      platform: r.platform ?? '',
+      snippet: r.positioning_vs_competitors,
+      date: r.run_date?.split('T')[0] ?? '',
+    }))
+    .sort((a: any, b: any) => b.date.localeCompare(a.date))
+}
