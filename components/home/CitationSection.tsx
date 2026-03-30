@@ -46,16 +46,20 @@ function InfoTooltip({ text }: { text: string }) {
 }
 
 // Always build chart data with all competitor columns — toggling shows/hides <Line>s only.
-// Clay's line is derived from competitorTs (domain='clay.com') so both use the same
-// citation_domains source and denominator — no more missing Clay line.
+// Clay's line uses overallTs (from responses.cited_domains) to match the KPI formula exactly.
+// Competitor lines use competitorTs (from citation_domains).
 function buildChartData(
+  overallTs: { date: string; value: number }[],
   competitorTs: { date: string; domain: string; value: number }[]
 ) {
-  // Split clay vs competitors
-  const clayTs   = competitorTs.filter(r => r.domain === 'clay.com')
+  // Only non-Clay competitor rows
   const nonClayTs = competitorTs.filter(r => r.domain !== 'clay.com')
 
-  const dates = [...new Set(competitorTs.map(r => r.date))].sort()
+  // All unique dates across both sources
+  const allDates = [...new Set([
+    ...overallTs.map(r => r.date),
+    ...nonClayTs.map(r => r.date),
+  ])].sort()
 
   const domainTotals = new Map<string, number>()
   for (const r of nonClayTs) {
@@ -66,10 +70,11 @@ function buildChartData(
     .slice(0, 5)
     .map(([d]) => d)
 
-  const clayLookup = new Map(clayTs.map(r => [r.date, r.value]))
+  // Clay lookup from overallTs (same formula as KPI)
+  const clayLookup = new Map(overallTs.map(r => [r.date, r.value]))
   const compLookup = new Map(nonClayTs.map(r => [`${r.date}|||${r.domain}`, r.value]))
 
-  const data = dates.map(date => {
+  const data = allDates.map(date => {
     const row: Record<string, string | number> = { date, Clay: clayLookup.get(date) ?? 0 }
     for (const d of topDomains) row[d] = compLookup.get(`${date}|||${d}`) ?? 0
     return row
@@ -149,7 +154,7 @@ export default function CitationSection({ timeseries, domains, competitorTimeser
   const [showCompetitors, setShowCompetitors] = useState(true)   // default ON
   const [search, setSearch] = useState('')
 
-  const { competitorDomains, data: chartData } = buildChartData(competitorTimeseries)
+  const { competitorDomains, data: chartData } = buildChartData(timeseries, competitorTimeseries)
 
   // Dynamic Y-axis max
   const allVals = chartData.flatMap(r => Object.entries(r).filter(([k]) => k !== 'date').map(([, v]) => Number(v)))

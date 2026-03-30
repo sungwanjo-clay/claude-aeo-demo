@@ -251,7 +251,7 @@ export async function getCompetitorCitationTimeseries(
     if (!date) continue                       // skip responses excluded by topic/branded/promptType filters
     const d = (c.domain ?? '').toLowerCase()
     if (!d) continue
-    const isClay = d.includes('clay')
+    const isClay = d.includes('clay.com')
     const key = isClay ? 'clay.com' : d
 
     if (!citingByDate.has(date)) citingByDate.set(date, new Set())
@@ -578,7 +578,7 @@ export async function getCitationRateByTopic(
       const domains: string[] = Array.isArray(row.cited_domains)
         ? row.cited_domains
         : JSON.parse(row.cited_domains ?? '[]')
-      if (domains.some((d: string) => typeof d === 'string' && d.toLowerCase().includes('clay'))) {
+      if (domains.some((d: string) => typeof d === 'string' && d.toLowerCase().includes('clay.com'))) {
         cur.withClayCit++
       }
     } catch { /* ignore parse errors */ }
