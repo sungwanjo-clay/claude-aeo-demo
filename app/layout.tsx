@@ -7,8 +7,8 @@ import GlobalFilterBar from '@/components/layout/GlobalFilterBar'
 import BenchmarkBanner from '@/components/layout/BenchmarkBanner'
 
 export const metadata: Metadata = {
-  title: 'AI Visibility Dashboard — Clay',
-  description: 'Track how Clay is mentioned, cited, and described across AI platforms',
+  title: 'AI Visibility Dashboard — Anthropic',
+  description: 'Track how Claude & Anthropic are mentioned, cited, and described across AI platforms',
 }
 
 export default function RootLayout({

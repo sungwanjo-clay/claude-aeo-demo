@@ -19,7 +19,7 @@ const NAV_ITEMS = [
   { href: '/citations',   label: 'Citations',        icon: LinkIcon },
   { href: '/competitive', label: 'Competitive',      icon: BarChart2 },
   { href: '/sentiment',   label: 'Sentiment',        icon: MessageSquare },
-  { href: '/mcp',         label: 'MCP & Claygent',   icon: Bot },
+  { href: '/mcp',         label: 'MCP & Claude API',  icon: Bot },
   { href: '/prompts',     label: 'Prompts',          icon: List },
   { href: '/explorer',    label: 'Metric Explorer',  icon: Sliders },
 ]
@@ -39,8 +39,8 @@ export default function Sidebar() {
       {/* Logo */}
       <div className="h-14 flex items-center gap-3 px-4" style={{ borderBottom: '1px solid var(--clay-border)' }}>
         <img
-          src="https://www.google.com/s2/favicons?domain=clay.com&sz=64"
-          alt="Clay"
+          src="https://www.google.com/s2/favicons?domain=anthropic.com&sz=64"
+          alt="Anthropic"
           width={28}
           height={28}
           style={{ borderRadius: '7px', flexShrink: 0 }}
@@ -50,7 +50,7 @@ export default function Sidebar() {
             AI Visibility
           </p>
           <p className="text-[9px] font-bold uppercase tracking-widest" style={{ color: 'rgba(26,25,21,0.35)' }}>
-            clay.com
+            anthropic.com
           </p>
         </div>
       </div>
@@ -87,7 +87,7 @@ export default function Sidebar() {
       <div className="px-4 py-3 flex items-center justify-between" style={{ borderTop: '1px solid var(--clay-border)' }}>
         <div className="flex items-center gap-2 min-w-0">
           <img
-            src="https://www.google.com/s2/favicons?domain=clay.com&sz=32"
+            src="https://www.google.com/s2/favicons?domain=anthropic.com&sz=32"
             alt=""
             width={14}
             height={14}

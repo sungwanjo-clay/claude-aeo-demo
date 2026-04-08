@@ -126,7 +126,7 @@ export default function HomePage() {
     return avgPos.current - avgPos.previous
   }
 
-  // Build visibility trend chart data (Clay + top-5 competitors, always included)
+  // Build visibility trend chart data (Anthropic + top-5 competitors, always included)
   const visCompTotals = new Map<string, number>()
   for (const r of competitorVisTimeseries) {
     visCompTotals.set(r.competitor, (visCompTotals.get(r.competitor) ?? 0) + r.value)
@@ -139,7 +139,7 @@ export default function HomePage() {
     ...competitorVisTimeseries.map(r => r.date),
   ])].sort()
   const visChartData = visChartDates.map(date => {
-    const row: Record<string, string | number> = { date, Clay: sparkLookup.get(date) ?? 0 }
+    const row: Record<string, string | number> = { date, Anthropic: sparkLookup.get(date) ?? 0 }
     for (const c of topVisComps) row[c] = visCompLookup.get(`${date}|||${c}`) ?? 0
     return row
   })
@@ -147,32 +147,32 @@ export default function HomePage() {
   const visAllVals = visChartData.flatMap(r => Object.entries(r).filter(([k]) => k !== 'date').map(([, v]) => Number(v)))
   const visYMax = Math.min(100, Math.ceil(Math.max(...visAllVals, 1) * 1.2 / 5) * 5)
 
-  // Always include Clay in the top-6 table. If not naturally in top 6, pin it at #6.
+  // Always include Anthropic in the top-6 table. If not naturally in top 6, pin it at #6.
   const allWithClay = (() => {
-    const hasClay = competitors.some(c => c.competitor_name === 'Clay')
+    const hasClay = competitors.some(c => c.competitor_name === 'Anthropic')
     const list = hasClay
       ? competitors
-      : [...competitors, { competitor_name: 'Clay', mention_count: 0, sov_pct: visibility?.current ?? 0, visibility_score: visibility?.current ?? 0, delta: visDelta(), isOwned: true }]
+      : [...competitors, { competitor_name: 'Anthropic', mention_count: 0, sov_pct: visibility?.current ?? 0, visibility_score: visibility?.current ?? 0, delta: visDelta(), isOwned: true }]
     return list
       .map(row => ({
         ...row,
-        _displayScore: row.competitor_name === 'Clay' && visibility?.current != null
+        _displayScore: row.competitor_name === 'Anthropic' && visibility?.current != null
           ? visibility.current
           : (row.visibility_score ?? row.sov_pct ?? 0),
       }))
       .sort((a, b) => b._displayScore - a._displayScore)
   })()
-  const clayNaturalRank = allWithClay.findIndex(c => c.competitor_name === 'Clay')
+  const clayNaturalRank = allWithClay.findIndex(c => c.competitor_name === 'Anthropic')
   const sortedCompetitors = clayNaturalRank < 6
     ? allWithClay.slice(0, 6)
-    : [...allWithClay.filter(c => c.competitor_name !== 'Clay').slice(0, 5), allWithClay[clayNaturalRank]]
+    : [...allWithClay.filter(c => c.competitor_name !== 'Anthropic').slice(0, 5), allWithClay[clayNaturalRank]]
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold" style={{ color: 'var(--clay-black)', letterSpacing: '-0.03em' }}>Good morning</h1>
-          <p className="text-xs font-bold uppercase tracking-wider mt-0.5" style={{ color: 'rgba(26,25,21,0.45)' }}>Here&apos;s what happened with Clay&apos;s AI visibility</p>
+          <p className="text-xs font-bold uppercase tracking-wider mt-0.5" style={{ color: 'rgba(26,25,21,0.45)' }}>Here&apos;s what happened with Anthropic&apos;s AI visibility</p>
         </div>
       </div>
 
@@ -220,10 +220,10 @@ export default function HomePage() {
               label="Positive Sentiment"
               value={sentiment?.positive != null ? `${sentiment.positive.toFixed(1)}%` : '—'}
               delta={null}
-              deltaLabel="of Clay mentions"
+              deltaLabel="of Anthropic mentions"
             />
             <KpiCard
-              label="ClayMCP & Agent"
+              label="Claude MCP & API"
               value={claygentCount?.current != null ? claygentCount.current.toLocaleString() : '—'}
               delta={claygentCount?.current != null && claygentCount?.previous != null ? claygentCount.current - claygentCount.previous : null}
               deltaLabel="vs prev period"
@@ -249,7 +249,7 @@ export default function HomePage() {
                 <Info size={12} style={{ color: 'rgba(26,25,21,0.35)', cursor: 'help', verticalAlign: 'middle' }} />
                 <span className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-60 rounded-lg px-3 py-2 text-[11px] leading-relaxed font-medium shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity"
                   style={{ background: 'var(--clay-black)', color: 'white', whiteSpace: 'normal' }}>
-                  % of AI responses that mention Clay by name, across all prompts and platforms.
+                  % of AI responses that mention Claude or Anthropic by name, across all prompts and platforms.
                 </span>
               </span>
             </div>
@@ -295,8 +295,8 @@ export default function HomePage() {
                   contentStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans', border: '1px solid var(--clay-border-dashed)', borderRadius: '8px' }}
                 />
                 <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans' }} />
-                <Line type="monotone" dataKey="Clay" stroke="var(--clay-black)" strokeWidth={2.5}
-                  dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="Clay" />
+                <Line type="monotone" dataKey="Anthropic" stroke="var(--clay-black)" strokeWidth={2.5}
+                  dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="Anthropic" />
                 {showVisCompetitors && topVisComps.map((c, i) => (
                   <Line key={c} type="monotone" dataKey={c}
                     stroke={CHART_COLORS[(i + 2) % CHART_COLORS.length]}
@@ -306,7 +306,7 @@ export default function HomePage() {
             </ResponsiveContainer>
           ) : visChartData.length === 1 ? (
             <div className="py-6 text-center">
-              <p className="text-2xl font-bold" style={{ color: 'var(--clay-black)' }}>{(visChartData[0].Clay as number).toFixed(1)}%</p>
+              <p className="text-2xl font-bold" style={{ color: 'var(--clay-black)' }}>{(visChartData[0].Anthropic as number).toFixed(1)}%</p>
               <p className="text-[10px] font-bold uppercase tracking-wider mt-1" style={{ color: 'rgba(26,25,21,0.4)' }}>Only 1 data point — run again tomorrow to see a trend</p>
             </div>
           ) : (
@@ -322,7 +322,7 @@ export default function HomePage() {
             <table className="w-full">
               <tbody>
                 {sortedCompetitors.map((row, idx) => {
-                  const isClay = row.competitor_name === 'Clay'
+                  const isClay = row.competitor_name === 'Anthropic'
                   const score = row._displayScore
                   const delta = isClay ? visDelta() : (row.delta ?? null)
                   return (
@@ -372,9 +372,9 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* ClayMCP & Agent */}
+      {/* Claude MCP & API */}
       <div>
-        <h2 className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'rgba(26,25,21,0.45)' }}>ClayMCP & Agent</h2>
+        <h2 className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'rgba(26,25,21,0.45)' }}>Claude MCP & API</h2>
         {loadingExtra ? <SkeletonChart /> : (
           <ClaygentSection
             claygentData={claygentTimeseries}
