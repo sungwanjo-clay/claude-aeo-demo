@@ -93,7 +93,7 @@ function NarrativeFeed({ narratives, loading }: { narratives: NarrativeGroup[]; 
               Narrative Intelligence
             </h2>
             <p className="text-[12px] mt-0.5" style={{ color: 'rgba(26,25,21,0.5)' }}>
-              Every theme AI generates about Clay. Negative ones need attention — fix the narrative or the source.
+              Every theme AI generates about Anthropic. Negative ones need attention — fix the narrative or the source.
             </p>
           </div>
           <div className="relative shrink-0">
@@ -294,7 +294,7 @@ function CompetitiveFraming({ items, loading }: { items: PositioningEntry[]; loa
               Competitive Framing
             </h2>
             <p className="text-[12px] mt-0.5" style={{ color: 'rgba(26,25,21,0.5)' }}>
-              How AI positions Clay relative to competitors across topics. Use this to understand which narratives need correction.
+              How AI positions Anthropic relative to competitors across topics. Use this to understand which narratives need correction.
             </p>
           </div>
         </div>
@@ -429,7 +429,7 @@ export default function SentimentPage() {
         <div>
           <h1 className="text-xl font-bold" style={{ color: 'var(--clay-black)', letterSpacing: '-0.03em' }}>Sentiment</h1>
           <p className="text-[13px] mt-0.5" style={{ color: 'rgba(26,25,21,0.55)' }}>
-            How AI describes Clay — and where to take action
+            How AI describes Anthropic — and where to take action
           </p>
         </div>
         {!loading && negCount > 0 && (
@@ -448,9 +448,9 @@ export default function SentimentPage() {
         </div>
       ) : (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <KpiCard label="Positive Sentiment" value={breakdown?.positive != null ? `${breakdown.positive.toFixed(1)}%` : '—'} delta={null} deltaLabel="of Clay mentions" />
-          <KpiCard label="Neutral Sentiment" value={breakdown?.neutral != null ? `${breakdown.neutral.toFixed(1)}%` : '—'} delta={null} deltaLabel="of Clay mentions" />
-          <KpiCard label="Negative Sentiment" value={breakdown?.negative != null ? `${breakdown.negative.toFixed(1)}%` : '—'} delta={null} deltaLabel="of Clay mentions" invertDelta />
+          <KpiCard label="Positive Sentiment" value={breakdown?.positive != null ? `${breakdown.positive.toFixed(1)}%` : '—'} delta={null} deltaLabel="of Anthropic mentions" />
+          <KpiCard label="Neutral Sentiment" value={breakdown?.neutral != null ? `${breakdown.neutral.toFixed(1)}%` : '—'} delta={null} deltaLabel="of Anthropic mentions" />
+          <KpiCard label="Negative Sentiment" value={breakdown?.negative != null ? `${breakdown.negative.toFixed(1)}%` : '—'} delta={null} deltaLabel="of Anthropic mentions" invertDelta />
           <KpiCard label="Brand Sentiment Score" value={breakdown?.avgScore != null ? `${breakdown.avgScore.toFixed(0)}/100` : '—'} delta={null} deltaLabel="avg score" />
         </div>
       )}

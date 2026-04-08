@@ -95,9 +95,9 @@ function CompTabs({
   return (
     <div className="flex items-center gap-1 mb-3 flex-wrap">
       {options.map((comp, i) => {
-        const isClay = comp === 'Clay'
+        const isClay = comp === 'Anthropic'
         const isActive = active === comp
-        const nonClayIdx = options.filter(c => c !== 'Clay').indexOf(comp)
+        const nonClayIdx = options.filter(c => c !== 'Anthropic').indexOf(comp)
         const color = isClay ? null : COMP_COLORS[nonClayIdx >= 0 ? nonClayIdx % COMP_COLORS.length : i % COMP_COLORS.length]
         return (
           <button
@@ -154,8 +154,8 @@ function KpiCompTable({ kpisMap, competitors }: { kpisMap: Record<string, AnyKPI
           <tr style={{ borderBottom: '1px solid var(--clay-border)' }}>
             <th className="py-2.5 px-4 text-left" style={{ ...LABEL, width: '130px' }}>Metric</th>
             {competitors.map((c, i) => {
-              const isClay = c === 'Clay'
-              const nonClayIdx = competitors.filter(x => x !== 'Clay').indexOf(c)
+              const isClay = c === 'Anthropic'
+              const nonClayIdx = competitors.filter(x => x !== 'Anthropic').indexOf(c)
               const color = isClay ? 'rgba(200,240,64,0.8)' : COMP_COLORS[nonClayIdx >= 0 ? nonClayIdx % COMP_COLORS.length : i % COMP_COLORS.length]
               return (
                 <th key={c} className="py-2.5 px-4 text-right" style={LABEL}>
@@ -237,7 +237,7 @@ export default function CompetitivePage() {
   useEffect(() => {
     getCompetitorList(supabase).then(list => {
       setCompetitors(list)
-      const initial = list.includes('Clay') ? ['Clay'] : list.slice(0, 1)
+      const initial = list.includes('Anthropic') ? ['Anthropic'] : list.slice(0, 1)
       setSelectedComps(initial)
       setActiveComp(initial[0] ?? '')
     })
@@ -280,10 +280,10 @@ export default function CompetitivePage() {
     if (selectedComps.length === 0) return
     setLoading(true)
 
-    const isDefaultView = selectedComps.length === 1 && selectedComps[0] === 'Clay'
+    const isDefaultView = selectedComps.length === 1 && selectedComps[0] === 'Anthropic'
 
     const kpiPromises = selectedComps.map(comp => {
-      const isClay = comp === 'Clay'
+      const isClay = comp === 'Anthropic'
       const p = isClay
         ? getClayKPIs(supabase, f).then(r => ({
             visibilityScore: r.visibilityScore,
@@ -319,12 +319,12 @@ export default function CompetitivePage() {
     ]).then(async ([kpiResults, heat, wl]) => {
       // In default view, chart shows top 5 competitors by visibility
       const top5 = (wl as WinnerLoser[])
-        .filter(w => w.competitor_name !== 'Clay')
+        .filter(w => w.competitor_name !== 'Anthropic')
         .sort((a, b) => b.current - a.current)
         .slice(0, 5)
         .map(w => w.competitor_name)
 
-      const compsForChart = isDefaultView ? top5 : selectedComps.filter(c => c !== 'Clay')
+      const compsForChart = isDefaultView ? top5 : selectedComps.filter(c => c !== 'Anthropic')
       setChartCompLines(compsForChart)
 
       // Build merged timeseries: Clay + determined competitors
@@ -411,12 +411,12 @@ export default function CompetitivePage() {
 
   // Derived
   const isMulti = selectedComps.length > 1
-  const nonClaySelected = selectedComps.filter(c => c !== 'Clay')
+  const nonClaySelected = selectedComps.filter(c => c !== 'Anthropic')
   // Patch Clay's visibility in movers to always match the KPI tile (getClayKPIs uses
   // clay_mentioned='Yes' from responses; getWinnersAndLosers uses response_competitors — different sources)
-  const clayKpiScore = kpisMap['Clay']?.visibilityScore
+  const clayKpiScore = kpisMap['Anthropic']?.visibilityScore
   const patchedMovers = movers.map(m =>
-    m.competitor_name === 'Clay' && clayKpiScore != null
+    m.competitor_name === 'Anthropic' && clayKpiScore != null
       ? { ...m, current: clayKpiScore }
       : m
   )
@@ -493,7 +493,7 @@ export default function CompetitivePage() {
                 }}
               >
                 {/* Clay always at top */}
-                {competitors.filter(c => c === 'Clay').map(comp => {
+                {competitors.filter(c => c === 'Anthropic').map(comp => {
                   const checked = selectedComps.includes(comp)
                   const disabled = checked && selectedComps.length === 1
                   const mover = movers.find(m => m.competitor_name === comp)
@@ -525,7 +525,7 @@ export default function CompetitivePage() {
                 })}
 
                 {/* Alphabetical non-Clay competitors */}
-                {competitors.filter(c => c !== 'Clay').map(comp => {
+                {competitors.filter(c => c !== 'Anthropic').map(comp => {
                   const checked = selectedComps.includes(comp)
                   const disabled = checked && selectedComps.length === 1
                   const maxed = !checked && selectedComps.length >= MAX_SELECT
@@ -571,7 +571,7 @@ export default function CompetitivePage() {
         const comp = selectedComps[0]
         const kpis = kpisMap[comp]
         if (!kpis) return null
-        const isClay = comp === 'Clay'
+        const isClay = comp === 'Anthropic'
         return (
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             <KpiCard label="Visibility Score"

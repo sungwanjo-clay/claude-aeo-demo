@@ -372,19 +372,6 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* Claude MCP & API */}
-      <div>
-        <h2 className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'rgba(26,25,21,0.45)' }}>Claude MCP & API</h2>
-        {loadingExtra ? <SkeletonChart /> : (
-          <ClaygentSection
-            claygentData={claygentTimeseries}
-            followupData={followupTimeseries}
-            claygentBreakdown={claygentBreakdown}
-            followupBreakdown={followupBreakdown}
-          />
-        )}
-      </div>
-
       {/* Data freshness */}
       {freshness && (
         <div className="text-[10px] font-bold uppercase tracking-wider pt-4" style={{ borderTop: '1px solid var(--clay-border)', color: 'rgba(26,25,21,0.35)' }}>

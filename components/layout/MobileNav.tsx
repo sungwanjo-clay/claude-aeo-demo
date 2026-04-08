@@ -11,7 +11,6 @@ const NAV_ITEMS = [
   { href: '/citations',   label: 'Citations',        icon: LinkIcon },
   { href: '/competitive', label: 'Competitive',      icon: BarChart2 },
   { href: '/sentiment',   label: 'Sentiment',        icon: MessageSquare },
-  { href: '/mcp',         label: 'MCP & Claude API',  icon: Bot },
   { href: '/prompts',     label: 'Prompts',          icon: List },
   { href: '/explorer',    label: 'Metric Explorer',  icon: Sliders },
 ]

@@ -189,7 +189,7 @@ function DomainRowItem({ row, rank }: { row: TopDomainRow; rank: number }) {
             <span className="text-[13px] font-semibold" style={{ color: 'var(--clay-black)' }}>{row.domain}</span>
             {row.is_clay && (
               <span className="text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0"
-                style={{ background: 'rgba(200,240,64,0.3)', color: 'var(--clay-black)' }}>Clay ✓</span>
+                style={{ background: 'rgba(204,120,92,0.2)', color: 'var(--clay-black)' }}>Anthropic ✓</span>
             )}
             {subdomainCount > 0 && (
               <span className="text-[10px] font-semibold shrink-0" style={{ color: 'rgba(26,25,21,0.4)' }}>
@@ -456,7 +456,7 @@ function ContentTypeRow({ urlType, total, grandTotal, urls }: {
 }
 
 // ── Citation activity chart ────────────────────────────────────────────────────
-// clay.com line uses citationRateKPI (period-aggregate from responses table) so it
+// anthropic.com line uses citationRateKPI (period-aggregate from responses table) so it
 // always matches the KPI card. Competitor lines use per-day rates from competitorTs.
 function CitationActivityChart({ competitorTs, citationRateKPI }: {
   competitorTs: { date: string; domain: string; value: number }[]
@@ -464,7 +464,7 @@ function CitationActivityChart({ competitorTs, citationRateKPI }: {
 }) {
   const COMP_COLORS = ['#4A5AFF', '#FF6B35', '#CC3D8A', '#3DB8CC', '#3DAA6A']
 
-  const nonClayTs = competitorTs.filter(r => !r.domain.includes('clay.com'))
+  const nonClayTs = competitorTs.filter(r => !r.domain.includes('anthropic.com'))
   const allDates = [...new Set(nonClayTs.map(r => r.date))].sort()
   const compMap = new Map(nonClayTs.map(r => [`${r.date}|||${r.domain}`, r.value]))
 
@@ -479,7 +479,7 @@ function CitationActivityChart({ competitorTs, citationRateKPI }: {
 
   const chartData = allDates.map(date => {
     const row: Record<string, string | number> = { date }
-    row['clay.com'] = clayValue
+    row['anthropic.com'] = clayValue
     for (const d of top5) row[d] = compMap.get(`${date}|||${d}`) ?? 0
     return row
   })
@@ -495,7 +495,7 @@ function CitationActivityChart({ competitorTs, citationRateKPI }: {
   // Single data point — show all domain metrics as stat cards
   if (chartData.length === 1) {
     const d = chartData[0]
-    const allDomains = ['clay.com', ...top5]
+    const allDomains = ['anthropic.com', ...top5]
     return (
       <div>
         <div className="flex items-center mb-3">
@@ -504,8 +504,8 @@ function CitationActivityChart({ competitorTs, citationRateKPI }: {
         </div>
         <div className="flex flex-wrap gap-4 py-2">
           {allDomains.map((domain, i) => {
-            const val = domain === 'clay.com' ? clayValue : Number(d[domain] ?? 0)
-            const color = domain === 'clay.com' ? 'var(--clay-black)' : COMP_COLORS[(i - 1) % COMP_COLORS.length]
+            const val = domain === 'anthropic.com' ? clayValue : Number(d[domain] ?? 0)
+            const color = domain === 'anthropic.com' ? 'var(--clay-black)' : COMP_COLORS[(i - 1) % COMP_COLORS.length]
             return (
               <div key={domain} className="flex flex-col gap-0.5">
                 <div className="flex items-center gap-1.5">
@@ -548,8 +548,8 @@ function CitationActivityChart({ competitorTs, citationRateKPI }: {
               stroke={COMP_COLORS[i % COMP_COLORS.length]}
               strokeWidth={1.8} dot={{ r: 2, strokeWidth: 0 }} activeDot={{ r: 4 }} name={d} />
           ))}
-          <Line type="monotone" dataKey="clay.com" stroke="var(--clay-black)" strokeWidth={2.5}
-            dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="clay.com" />
+          <Line type="monotone" dataKey="anthropic.com" stroke="var(--clay-black)" strokeWidth={2.5}
+            dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="anthropic.com" />
         </LineChart>
       </ResponsiveContainer>
     </>
@@ -758,7 +758,7 @@ export default function CitationsPage() {
           <InfoTip text="Which types of Clay content AI cites most. Expand a type to see specific pages, the topics they appear in, and which platforms cite them." />
         </div>
         <p className="text-xs mb-4" style={{ color: 'rgba(26,25,21,0.45)' }}>
-          How clay.com is cited — by content type, with the top cited pages per category.
+          How anthropic.com is cited — by content type, with the top cited pages per category.
         </p>
         {loadingExtra ? (
           <div className="space-y-2">{[1, 2, 3].map(i => <div key={i} className="h-12 rounded-lg animate-pulse" style={{ background: 'rgba(26,25,21,0.05)' }} />)}</div>
