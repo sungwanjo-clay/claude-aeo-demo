@@ -344,7 +344,7 @@ export default function CompetitivePage() {
       const allDates = [...dateSet].sort()
       const clayDateMap = new Map(clayTs.map(r => [r.date, r.value]))
       const ts = allDates.map(date => {
-        const row: { date: string; [k: string]: string | number } = { date, Clay: clayDateMap.get(date) ?? 0 }
+        const row: { date: string; [k: string]: string | number } = { date, Anthropic: clayDateMap.get(date) ?? 0 }
         for (const comp of compsForChart) {
           row[comp] = compMap[comp]?.[date] ?? 0
         }
@@ -590,7 +590,7 @@ export default function CompetitivePage() {
               <div style={CARD} className="p-5 flex flex-col gap-2">
                 <div style={LABEL}>Avg Position</div>
                 <div className="text-2xl font-bold" style={{ color: 'rgba(26,25,21,0.25)' }}>—</div>
-                <div style={{ ...LABEL, color: 'rgba(26,25,21,0.3)' }}>Clay only</div>
+                <div style={{ ...LABEL, color: 'rgba(26,25,21,0.3)' }}>Anthropic only</div>
               </div>
             )}
             <div style={CARD} className="p-5 flex flex-col gap-2">
@@ -615,8 +615,8 @@ export default function CompetitivePage() {
             {isMulti
               ? `Visibility Over Time — ${selectedComps.join(' vs ')}`
               : chartCompLines.length > 0
-                ? `Clay vs Top Competitors — Visibility Over Time`
-                : `Clay Visibility — Trend Over Time`}
+                ? `Anthropic vs Top Competitors — Visibility Over Time`
+                : `Anthropic Visibility — Trend Over Time`}
           </div>
           {loading ? <SkeletonChart /> : tsData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
@@ -633,8 +633,8 @@ export default function CompetitivePage() {
                 {chartCompLines.length > 0 && (
                   <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
                 )}
-                <Line type="monotone" dataKey="Clay" stroke="var(--clay-black)" strokeWidth={2.5}
-                  dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="Clay" />
+                <Line type="monotone" dataKey="Anthropic" stroke="var(--clay-black)" strokeWidth={2.5}
+                  dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="Anthropic" />
                 {chartCompLines.map((comp, i) => (
                   <Line key={comp} type="monotone" dataKey={comp}
                     stroke={COMP_COLORS[i % COMP_COLORS.length]}
@@ -682,7 +682,7 @@ export default function CompetitivePage() {
         </div>
       </div>
 
-      <SectionDivider title="Topic Intelligence" subtitle="Where Clay wins and loses by use case" />
+      <SectionDivider title="Topic Intelligence" subtitle="Where Anthropic wins and loses by use case" />
 
       {/* PMM Topic Comparison */}
       {Object.keys(pmmRowsMap).length === 0 ? (
@@ -700,7 +700,7 @@ export default function CompetitivePage() {
         />
       )}
 
-      <SectionDivider title="Citation & Source Analysis" subtitle="Which sources cite Clay vs competitors" />
+      <SectionDivider title="Citation & Source Analysis" subtitle="Which sources cite Anthropic vs competitors" />
 
       {/* Citation Profile */}
       {loadingExtra ? (

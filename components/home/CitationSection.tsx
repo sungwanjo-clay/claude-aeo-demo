@@ -27,7 +27,7 @@ interface Props {
 const cardStyle = { background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }
 const labelStyle = { color: 'rgba(26,25,21,0.45)', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }
 
-const CITATION_INFO = '% of AI responses that include a link or reference to clay.com, out of all responses that cited any domain. Toggle "Hide competitors" to isolate Clay.'
+const CITATION_INFO = '% of AI responses that include a link or reference to anthropic.com, out of all responses that cited any domain. Toggle "Hide competitors" to isolate Anthropic.'
 
 function InfoTooltip({ text }: { text: string }) {
   const [show, setShow] = useState(false)
@@ -53,7 +53,7 @@ function buildChartData(
   competitorTs: { date: string; domain: string; value: number }[],
   clayKPI: number | null | undefined
 ) {
-  const nonClayTs = competitorTs.filter(r => r.domain !== 'clay.com')
+  const nonClayTs = competitorTs.filter(r => r.domain !== 'anthropic.com')
   const allDates = [...new Set(nonClayTs.map(r => r.date))].sort()
 
   const domainTotals = new Map<string, number>()
@@ -70,7 +70,7 @@ function buildChartData(
   const clayValue = clayKPI ?? 0
 
   const data = allDates.map(date => {
-    const row: Record<string, string | number> = { date, Clay: clayValue }
+    const row: Record<string, string | number> = { date, Anthropic: clayValue }
     for (const d of topDomains) row[d] = compLookup.get(`${date}|||${d}`) ?? 0
     return row
   })
@@ -86,15 +86,15 @@ function TopCitedSidebar({ domains, competitorTimeseries, citationRateKPI }: {
   competitorTimeseries: { date: string; domain: string; value: number }[]
   citationRateKPI?: number | null
 }) {
-  // Find Clay in domains; if not present derive a placeholder
-  let clay: DomainRow | undefined = domains.find(d => d.is_clay || d.domain.toLowerCase().includes('clay.com'))
+  // Find Anthropic in domains; if not present derive a placeholder
+  let clay: DomainRow | undefined = domains.find(d => d.is_clay || d.domain.toLowerCase().includes('anthropic.com'))
   if (!clay) {
-    clay = { domain: 'clay.com', citation_count: 0, share_pct: 0, is_clay: true, citation_type: 'Owned', top_urls: [] }
+    clay = { domain: 'anthropic.com', citation_count: 0, share_pct: 0, is_clay: true, citation_type: 'Owned', top_urls: [] }
   }
 
-  // Top 5 non-Clay competitor domains only (citation_type === 'Competition'), then always add Clay
+  // Top 5 non-Anthropic competitor domains only (citation_type === 'Competition'), then always add Anthropic
   const nonClay = [...domains]
-    .filter(d => !d.is_clay && !d.domain.toLowerCase().includes('clay') && d.citation_type === 'Competition')
+    .filter(d => !d.is_clay && !d.domain.toLowerCase().includes('anthropic') && d.citation_type === 'Competition')
     .sort((a, b) => b.share_pct - a.share_pct)
     .slice(0, 5)
 
@@ -126,7 +126,7 @@ function TopCitedSidebar({ domains, competitorTimeseries, citationRateKPI }: {
                 </span>
                 {row.is_clay && (
                   <span className="text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0"
-                    style={{ background: 'rgba(200,240,64,0.3)', color: 'var(--clay-black)' }}>You</span>
+                    style={{ background: 'rgba(204,120,92,0.2)', color: 'var(--clay-slushie)' }}>You</span>
                 )}
               </div>
             </td>
@@ -200,8 +200,8 @@ export default function CitationSection({ timeseries, domains, competitorTimeser
                   contentStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans', border: '1px solid var(--clay-border-dashed)', borderRadius: '8px' }}
                 />
                 <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans' }} />
-                <Line type="monotone" dataKey="Clay" stroke="var(--clay-black)" strokeWidth={2.5}
-                  dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="Clay" />
+                <Line type="monotone" dataKey="Anthropic" stroke="var(--clay-black)" strokeWidth={2.5}
+                  dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="Anthropic" />
                 {showCompetitors && competitorDomains.map((d, i) => (
                   <Line key={d} type="monotone" dataKey={d}
                     stroke={COMPETITOR_COLORS[i % COMPETITOR_COLORS.length]}
@@ -212,7 +212,7 @@ export default function CitationSection({ timeseries, domains, competitorTimeser
           ) : chartData.length === 1 ? (
             <div className="py-8 text-center">
               <p className="text-2xl font-bold" style={{ color: 'var(--clay-black)' }}>
-                {(chartData[0].Clay as number).toFixed(1)}%
+                {(chartData[0].Anthropic as number).toFixed(1)}%
               </p>
               <p style={{ ...labelStyle, marginTop: '4px' }}>Only 1 data point — run again tomorrow to see a trend</p>
             </div>
@@ -272,7 +272,7 @@ export default function CitationSection({ timeseries, domains, competitorTimeser
                       className="cursor-pointer hover:bg-[rgba(26,25,21,0.02)] transition-colors"
                       style={{
                         borderBottom: expandedDomain === row.domain ? 'none' : '1px solid rgba(26,25,21,0.05)',
-                        background: row.is_clay ? 'rgba(200,240,64,0.06)' : 'transparent',
+                        background: row.is_clay ? 'rgba(204,120,92,0.06)' : 'transparent',
                       }}
                     >
                       <td className="py-2.5 text-[12px] font-bold" style={{ color: 'rgba(26,25,21,0.3)' }}>{idx + 1}</td>

@@ -25,7 +25,7 @@ interface Props {
 }
 
 export default function CompTopicGap({ allRows, selectedComps, loading }: Props) {
-  const nonClayComps = selectedComps.filter(c => c !== 'Clay')
+  const nonClayComps = selectedComps.filter(c => c !== 'Anthropic')
 
   if (loading) {
     return (
@@ -52,7 +52,7 @@ export default function CompTopicGap({ allRows, selectedComps, loading }: Props)
     for (const [comp, rows] of Object.entries(allRows)) {
       const r = rows.find(x => x.pmm_use_case === topic)
       if (r?.clay_visibility) clayVis = r.clay_visibility
-      if (comp !== 'Clay' && r) {
+      if (comp !== 'Anthropic' && r) {
         row[comp] = parseFloat((r.clay_visibility - r.competitor_visibility).toFixed(1))
       }
     }
@@ -81,10 +81,10 @@ export default function CompTopicGap({ allRows, selectedComps, loading }: Props)
             <span className="font-bold" style={{ color: p.fill }}>
               {p.value >= 0 ? `+${p.value}` : p.value}%
             </span>
-            <span style={{ color: 'rgba(26,25,21,0.6)' }}>Clay vs {p.dataKey}</span>
+            <span style={{ color: 'rgba(26,25,21,0.6)' }}>Anthropic vs {p.dataKey}</span>
           </div>
         ))}
-        <p className="mt-1 text-[10px]" style={{ color: 'rgba(26,25,21,0.4)' }}>Positive = Clay leads · Negative = competitor leads</p>
+        <p className="mt-1 text-[10px]" style={{ color: 'rgba(26,25,21,0.4)' }}>Positive = Anthropic leads · Negative = competitor leads</p>
       </div>
     )
   }
@@ -93,15 +93,15 @@ export default function CompTopicGap({ allRows, selectedComps, loading }: Props)
     <div style={CARD} className="p-4">
       <div style={LABEL} className="mb-1">Topic Visibility Gap</div>
       <p className="text-xs mb-4" style={{ color: 'rgba(26,25,21,0.45)' }}>
-        Clay's visibility advantage (+) or disadvantage (−) vs each competitor per PMM topic.
-        Green bars = Clay is winning. Colored bars = competitor is winning.
+        Anthropic's visibility advantage (+) or disadvantage (−) vs each competitor per PMM topic.
+        Green bars = Anthropic is winning. Colored bars = competitor is winning.
       </p>
 
       {/* Legend */}
       <div className="flex items-center gap-4 mb-3 flex-wrap">
         <div className="flex items-center gap-1.5">
           <div className="w-3 h-3 rounded-sm" style={{ background: '#3DAA6A' }} />
-          <span className="text-[10px] font-semibold" style={{ color: 'rgba(26,25,21,0.6)' }}>Clay leads</span>
+          <span className="text-[10px] font-semibold" style={{ color: 'rgba(26,25,21,0.6)' }}>Anthropic leads</span>
         </div>
         {nonClayComps.map((comp, i) => (
           <div key={comp} className="flex items-center gap-1.5">

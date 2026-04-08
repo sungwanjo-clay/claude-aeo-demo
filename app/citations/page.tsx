@@ -528,7 +528,7 @@ function CitationActivityChart({ competitorTs, citationRateKPI }: {
     <>
       <div className="flex items-center mb-4">
         <span style={LABEL}>Citation Rate Over Time</span>
-        <InfoTip text="% of responses with citations that cited each domain. Clay.com is always shown; top 5 other domains shown for comparison. All lines use the same denominator (responses with any citations) so they're directly comparable." />
+        <InfoTip text="% of responses with citations that cited each domain. Anthropic.com is always shown; top 5 other domains shown for comparison. All lines use the same denominator (responses with any citations) so they're directly comparable." />
       </div>
       <ResponsiveContainer width="100%" height={210}>
         <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
@@ -565,7 +565,7 @@ function CitationRateByTopicChart({ data }: { data: TopicCitationRow[] }) {
       </div>
     )
   }
-  return <VisibilityLineChart data={data} groupKey="topic" height={300} yLabel="Clay cited %" />
+  return <VisibilityLineChart data={data} groupKey="topic" height={300} yLabel="Anthropic cited %" />
 }
 
 // ── Page ───────────────────────────────────────────────────────────────────────
@@ -665,7 +665,7 @@ export default function CitationsPage() {
       <div>
         <h1 className="text-xl font-bold" style={{ color: 'var(--clay-black)', letterSpacing: '-0.03em' }}>Citations</h1>
         <p className="text-sm mt-0.5" style={{ color: 'rgba(26,25,21,0.55)' }}>
-          Which content AI cites, what types of pages rank, and where Clay appears.
+          Which content AI cites, what types of pages rank, and where Anthropic appears.
         </p>
       </div>
 
@@ -754,8 +754,8 @@ export default function CitationsPage() {
       {/* Clay Citations by Content Type */}
       <div style={CARD} className="p-4">
         <div className="flex items-center mb-1">
-          <span style={LABEL}>Clay Citations by Content Type</span>
-          <InfoTip text="Which types of Clay content AI cites most. Expand a type to see specific pages, the topics they appear in, and which platforms cite them." />
+          <span style={LABEL}>Anthropic Citations by Content Type</span>
+          <InfoTip text="Which types of Anthropic content AI cites most. Expand a type to see specific pages, the topics they appear in, and which platforms cite them." />
         </div>
         <p className="text-xs mb-4" style={{ color: 'rgba(26,25,21,0.45)' }}>
           How anthropic.com is cited — by content type, with the top cited pages per category.
@@ -763,7 +763,7 @@ export default function CitationsPage() {
         {loadingExtra ? (
           <div className="space-y-2">{[1, 2, 3].map(i => <div key={i} className="h-12 rounded-lg animate-pulse" style={{ background: 'rgba(26,25,21,0.05)' }} />)}</div>
         ) : clayUrlTypes.length === 0 ? (
-          <div className="flex items-center justify-center py-10 text-[13px]" style={{ color: 'rgba(26,25,21,0.35)' }}>No Clay citation data in this period</div>
+          <div className="flex items-center justify-center py-10 text-[13px]" style={{ color: 'rgba(26,25,21,0.35)' }}>No Anthropic citation data in this period</div>
         ) : (
           <div className="space-y-2">
             {clayUrlTypes.map(group => <ClayURLTypeRow key={group.url_type} group={group} totalCitations={totalClayCitations} />)}
@@ -797,11 +797,11 @@ export default function CitationsPage() {
       {/* Citation Rate by Prompt Topic — line chart */}
       <div style={CARD} className="p-4">
         <div className="flex items-center mb-1">
-          <span style={LABEL}>Clay Citation Rate by Prompt Topic</span>
-          <InfoTip text="How often Clay is cited per prompt topic, plotted over time. Each line is a topic — shows which prompt categories consistently drive Clay citations vs. which are opportunities." />
+          <span style={LABEL}>Anthropic Citation Rate by Prompt Topic</span>
+          <InfoTip text="How often Anthropic is cited per prompt topic, plotted over time. Each line is a topic — shows which prompt categories consistently drive Anthropic citations vs. which are opportunities." />
         </div>
         <p className="text-xs mb-4" style={{ color: 'rgba(26,25,21,0.45)' }}>
-          Which prompt topics trigger Clay citations — and how that changes over time.
+          Which prompt topics trigger Anthropic citations — and how that changes over time.
         </p>
         {loadingExtra ? <SkeletonChart /> : (
           <CitationRateByTopicChart data={topicCitationData} />

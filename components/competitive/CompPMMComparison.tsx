@@ -55,7 +55,7 @@ function CompResponseRow({ r, selected, defaultOpen = false }: { r: PMMCompPromp
   const hasDetail = !!(r.clay_mention_snippet || r.response_text)
   const clayYes = r.clay_mentioned === 'Yes'
   const compYes = r.competitor_mentioned
-  const showComp = selected !== 'Clay'
+  const showComp = selected !== 'Anthropic'
 
   return (
     <div style={{ borderBottom: '1px solid rgba(26,25,21,0.05)' }}>
@@ -76,7 +76,7 @@ function CompResponseRow({ r, selected, defaultOpen = false }: { r: PMMCompPromp
               border: `1px solid ${clayYes ? 'rgba(200,240,64,0.5)' : 'rgba(229,54,42,0.2)'}`,
             }}>
             <span>{clayYes ? '✓' : '✗'}</span>
-            <span className="text-[9px] font-bold uppercase tracking-wide">Clay</span>
+            <span className="text-[9px] font-bold uppercase tracking-wide">Anthropic</span>
           </div>
           {showComp && (
             <div className="flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded"
@@ -102,7 +102,7 @@ function CompResponseRow({ r, selected, defaultOpen = false }: { r: PMMCompPromp
           {r.clay_mention_snippet && (
             <div className="rounded-lg px-3 py-2 mt-2"
               style={{ background: 'rgba(200,240,64,0.08)', border: '1px solid rgba(200,240,64,0.25)' }}>
-              <p className="text-[9px] font-bold uppercase tracking-wider mb-1" style={{ color: 'rgba(26,25,21,0.45)' }}>How Clay was mentioned</p>
+              <p className="text-[9px] font-bold uppercase tracking-wider mb-1" style={{ color: 'rgba(26,25,21,0.45)' }}>How Anthropic was mentioned</p>
               <p className="text-[12px] leading-relaxed" style={{ color: 'var(--clay-black)' }}>
                 &ldquo;{stripMarkdown(r.clay_mention_snippet)}&rdquo;
               </p>
@@ -184,7 +184,7 @@ function CompPromptRow({ p, selected, nonClayComps }: { p: PMMCompPromptRow; sel
               style={{ background: 'rgba(26,25,21,0.03)', borderBottom: '1px solid rgba(26,25,21,0.07)' }}>
               <span style={{ ...LABEL, fontSize: '9px', width: '52px' }}>Platform</span>
               <span style={{ ...LABEL, fontSize: '9px', width: '80px' }}>Date</span>
-              <span style={{ ...LABEL, fontSize: '9px' }}>Clay mentioned · Competitor mentioned</span>
+              <span style={{ ...LABEL, fontSize: '9px' }}>Anthropic mentioned · Competitor mentioned</span>
             </div>
             {visibleResponses.map((r, idx) => (
               <CompResponseRow key={r.id} r={r} selected={selected} defaultOpen={idx < 4} />
@@ -241,7 +241,7 @@ function TopicBattleRow({
   }
 
   // Primary competitor for gap badge = selected (if not Clay), else first competitor
-  const primaryComp = selected !== 'Clay' ? selected : nonClayComps[0] ?? null
+  const primaryComp = selected !== 'Anthropic' ? selected : nonClayComps[0] ?? null
   const primaryVal = primaryComp ? (row.byComp[primaryComp] ?? 0) : null
   const gap = primaryVal !== null ? row.clay_visibility - primaryVal : null
   const clayLeads = gap !== null ? gap > 0 : null
@@ -285,8 +285,8 @@ function TopicBattleRow({
                 border: `1px solid ${clayLeads ? 'rgba(61,170,106,0.2)' : 'rgba(255,107,53,0.2)'}`,
               }}>
               {clayLeads
-                ? `Clay leads +${gap.toFixed(1)}pp`
-                : `Clay trails −${Math.abs(gap).toFixed(1)}pp`}
+                ? `Anthropic leads +${gap.toFixed(1)}pp`
+                : `Anthropic trails −${Math.abs(gap).toFixed(1)}pp`}
               {primaryComp && nonClayComps.length > 1 && (
                 <span className="opacity-60"> vs {primaryComp.length > 8 ? primaryComp.slice(0, 8) + '…' : primaryComp}</span>
               )}
@@ -298,7 +298,7 @@ function TopicBattleRow({
         <div className="space-y-1.5 ml-5">
           {/* Clay bar */}
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold w-16 shrink-0 truncate" style={{ color: 'var(--clay-black)' }}>Clay</span>
+            <span className="text-[10px] font-bold w-16 shrink-0 truncate" style={{ color: 'var(--clay-black)' }}>Anthropic</span>
             <div className="flex-1 rounded-full overflow-hidden" style={{ height: '7px', background: 'rgba(26,25,21,0.07)' }}>
               <div className="h-full rounded-full transition-all duration-300"
                 style={{ width: scale(row.clay_visibility), background: 'var(--clay-black)' }} />
@@ -349,10 +349,10 @@ function TopicBattleRow({
                 <div className="flex items-center gap-4 shrink-0">
                   {nonClayComps.length > 0 && (
                     <span style={{ ...LABEL, color: COMP_COLORS[Math.max(0, nonClayComps.indexOf(selected)) % COMP_COLORS.length] }}>
-                      {selected !== 'Clay' ? selected : nonClayComps[0]} %
+                      {selected !== 'Anthropic' ? selected : nonClayComps[0]} %
                     </span>
                   )}
-                  <span style={LABEL}>Clay %</span>
+                  <span style={LABEL}>Anthropic %</span>
                   <span style={LABEL}>Gap</span>
                   <span style={LABEL}>Resp.</span>
                 </div>
@@ -398,7 +398,7 @@ export default function CompPMMComparison({ allRows, selectedComps, selected, on
   const [loadingDrill, setLoadingDrill] = useState<string | null>(null)
   const [sortBy, setSortBy] = useState<SortMode>('actionable')
 
-  const nonClayComps = selectedComps.filter(c => c !== 'Clay')
+  const nonClayComps = selectedComps.filter(c => c !== 'Anthropic')
 
   async function handleExpand(pmm: string) {
     if (drillCache[pmm]) return
@@ -430,7 +430,7 @@ export default function CompPMMComparison({ allRows, selectedComps, selected, on
   })
 
   // Primary competitor for gap calc
-  const primaryComp = selected !== 'Clay' ? selected : nonClayComps[0] ?? null
+  const primaryComp = selected !== 'Anthropic' ? selected : nonClayComps[0] ?? null
 
   const sorted = [...mergedRows].sort((a, b) => {
     if (sortBy === 'actionable' && primaryComp) {
@@ -450,15 +450,15 @@ export default function CompPMMComparison({ allRows, selectedComps, selected, on
   )
 
   const sortOptions: { key: SortMode; label: string }[] = nonClayComps.length > 0
-    ? [{ key: 'actionable', label: 'Most Actionable' }, { key: 'clay', label: 'Clay Visibility' }, { key: 'volume', label: 'Volume' }]
-    : [{ key: 'clay', label: 'Clay Visibility' }, { key: 'volume', label: 'Volume' }]
+    ? [{ key: 'actionable', label: 'Most Actionable' }, { key: 'clay', label: 'Anthropic Visibility' }, { key: 'volume', label: 'Volume' }]
+    : [{ key: 'clay', label: 'Anthropic Visibility' }, { key: 'volume', label: 'Volume' }]
 
   // Auto-correct sort if no competitor and actionable is selected
   const effectiveSort: SortMode = sortBy === 'actionable' && nonClayComps.length === 0 ? 'clay' : sortBy
 
   const subtitle = nonClayComps.length > 0
-    ? `Expand any topic to drill into the specific prompts driving those numbers. Topics where Clay trails are shown first.`
-    : `Clay's visibility by PMM topic. Expand to see prompts.`
+    ? `Expand any topic to drill into the specific prompts driving those numbers. Topics where Anthropic trails are shown first.`
+    : `Anthropic's visibility by PMM topic. Expand to see prompts.`
 
   return (
     <div style={CARD} className="overflow-hidden">
@@ -497,7 +497,7 @@ export default function CompPMMComparison({ allRows, selectedComps, selected, on
           style={{ borderBottom: '1px solid rgba(26,25,21,0.06)', background: 'rgba(26,25,21,0.015)' }}>
           <div className="flex items-center gap-1.5">
             <div className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--clay-black)' }} />
-            <span className="text-[10px] font-semibold" style={{ color: 'rgba(26,25,21,0.6)' }}>Clay</span>
+            <span className="text-[10px] font-semibold" style={{ color: 'rgba(26,25,21,0.6)' }}>Anthropic</span>
           </div>
           {nonClayComps.map((comp, i) => (
             <div key={comp} className="flex items-center gap-1.5">
@@ -508,11 +508,11 @@ export default function CompPMMComparison({ allRows, selectedComps, selected, on
           <div className="flex items-center gap-3 ml-auto">
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-1.5 rounded" style={{ background: 'var(--clay-matcha)', opacity: 0.8 }} />
-              <span className="text-[10px] font-semibold" style={{ color: 'rgba(26,25,21,0.45)' }}>Clay leads</span>
+              <span className="text-[10px] font-semibold" style={{ color: 'rgba(26,25,21,0.45)' }}>Anthropic leads</span>
             </div>
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-1.5 rounded" style={{ background: 'var(--clay-tangerine)', opacity: 0.8 }} />
-              <span className="text-[10px] font-semibold" style={{ color: 'rgba(26,25,21,0.45)' }}>Clay trails</span>
+              <span className="text-[10px] font-semibold" style={{ color: 'rgba(26,25,21,0.45)' }}>Anthropic trails</span>
             </div>
           </div>
         </div>

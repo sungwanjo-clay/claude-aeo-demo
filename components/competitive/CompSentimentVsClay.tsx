@@ -133,7 +133,7 @@ function SnippetCard({ s }: { s: SentimentThemeSnippet }) {
             <div className="rounded px-2.5 py-2"
               style={{ background: 'rgba(200,240,64,0.08)', border: '1px solid rgba(200,240,64,0.3)' }}>
               <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: 'rgba(26,25,21,0.45)' }}>
-                Clay mention
+                Anthropic mention
               </p>
               <p className="text-[11px] leading-relaxed" style={{ color: 'var(--clay-black)' }}>
                 &ldquo;{stripMarkdown(s.clay_mention_snippet)}&rdquo;
@@ -236,9 +236,9 @@ interface Props {
 export default function CompSentimentVsClay({ data, selected, loading, headerSlot }: Props) {
   const [showAllThemes, setShowAllThemes] = useState(false)
   const CARD = { background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }
-  const isClay = selected === 'Clay'
+  const isClay = selected === 'Anthropic'
 
-  const heading = isClay ? 'Clay Sentiment by Theme' : `Clay Sentiment — in responses that mention ${selected}`
+  const heading = isClay ? 'Anthropic Sentiment by Theme' : `Anthropic Sentiment — in responses that mention ${selected}`
 
   if (loading) {
     return (
@@ -260,7 +260,7 @@ export default function CompSentimentVsClay({ data, selected, loading, headerSlo
         {headerSlot}
         <div style={LABEL} className="mb-1">{heading}</div>
         <div className="flex items-center justify-center py-10 text-[13px]" style={{ color: 'rgba(26,25,21,0.35)' }}>
-          {isClay ? 'No theme data available' : `No responses found mentioning both Clay and ${selected}`}
+          {isClay ? 'No theme data available' : `No responses found mentioning both Anthropic and ${selected}`}
         </div>
       </div>
     )
@@ -283,8 +283,8 @@ export default function CompSentimentVsClay({ data, selected, loading, headerSlo
         <div className="mb-4 p-3 rounded-lg" style={{ background: 'rgba(26,25,21,0.03)', border: '1px solid rgba(26,25,21,0.07)' }}>
           <p className="text-[12px]" style={{ color: 'rgba(26,25,21,0.65)' }}>
             <span className="font-bold" style={{ color: 'var(--clay-black)' }}>{data.coMentionCount?.toLocaleString() ?? '…'} AI responses</span>
-            {' '}mention both <span className="font-bold" style={{ color: 'var(--clay-black)' }}>Clay</span> and <span className="font-bold" style={{ color: '#4A5AFF' }}>{selected}</span>.
-            The themes below show how Clay is talked about in those shared contexts.
+            {' '}mention both <span className="font-bold" style={{ color: 'var(--clay-black)' }}>Anthropic</span> and <span className="font-bold" style={{ color: '#4A5AFF' }}>{selected}</span>.
+            The themes below show how Anthropic is talked about in those shared contexts.
           </p>
           {/* Win/loss summary */}
           <div className="flex items-center gap-3 mt-2">
@@ -307,8 +307,8 @@ export default function CompSentimentVsClay({ data, selected, loading, headerSlo
 
       {/* Overall sentiment bar */}
       <div className="flex items-center gap-3 mb-4 p-3 rounded-lg"
-        style={{ background: isClay ? 'rgba(26,25,21,0.03)' : 'rgba(200,240,64,0.06)', border: '1px solid rgba(26,25,21,0.07)' }}>
-        <div className="shrink-0 text-[10px] font-bold uppercase tracking-wider" style={{ color: 'rgba(26,25,21,0.45)', width: '32px' }}>Clay</div>
+        style={{ background: isClay ? 'rgba(26,25,21,0.03)' : 'rgba(204,120,92,0.06)', border: '1px solid rgba(26,25,21,0.07)' }}>
+        <div className="shrink-0 text-[10px] font-bold uppercase tracking-wider" style={{ color: 'rgba(26,25,21,0.45)', width: '32px' }}>Anth.</div>
         <div className="flex-1">
           <SentimentBar pos={data.clayPositivePct} neu={data.clayNeutralPct} neg={data.clayNegativePct} height={10} />
         </div>

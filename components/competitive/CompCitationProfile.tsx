@@ -76,7 +76,7 @@ function CitationResponseRow({ r, defaultOpen = false }: { r: CitationPromptRow[
             background: r.clay_mentioned === 'Yes' ? 'rgba(200,240,64,0.25)' : 'rgba(229,54,42,0.08)',
             color: r.clay_mentioned === 'Yes' ? 'var(--clay-black)' : 'var(--clay-pomegranate)',
           }}>
-          {r.clay_mentioned === 'Yes' ? 'Clay ✓' : 'Clay —'}
+          {r.clay_mentioned === 'Yes' ? 'Anthropic ✓' : 'Anthropic —'}
         </span>
         <div />
         {hasDetail
@@ -91,7 +91,7 @@ function CitationResponseRow({ r, defaultOpen = false }: { r: CitationPromptRow[
             <div className="rounded px-2.5 py-2"
               style={{ background: 'rgba(200,240,64,0.1)', border: '1px solid rgba(200,240,64,0.3)' }}>
               <p className="text-[10px] font-bold uppercase tracking-wider mb-1"
-                style={{ color: 'rgba(26,25,21,0.45)' }}>Clay mention snippet</p>
+                style={{ color: 'rgba(26,25,21,0.45)' }}>Anthropic mention snippet</p>
               <p className="text-[11px] leading-relaxed" style={{ color: 'var(--clay-black)' }}>
                 &ldquo;{stripMarkdown(r.clay_mention_snippet)}&rdquo;
               </p>
@@ -133,7 +133,7 @@ function CitationPromptBlock({ p }: { p: CitationPromptRow }) {
             <div className="rounded-lg overflow-hidden" style={{ border: '1px solid rgba(26,25,21,0.08)' }}>
               <div className="grid gap-2 px-3 py-1.5"
                 style={{ gridTemplateColumns: '80px 80px 56px 1fr 16px', background: 'rgba(26,25,21,0.03)', borderBottom: '1px solid rgba(26,25,21,0.07)' }}>
-                {['Platform', 'Date', 'Clay', 'Snippet', ''].map(h => (
+                {['Platform', 'Date', 'Anthropic', 'Snippet', ''].map(h => (
                   <span key={h} style={{ ...LABEL, fontSize: '9px' }}>{h}</span>
                 ))}
               </div>
