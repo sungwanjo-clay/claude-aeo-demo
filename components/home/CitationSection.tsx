@@ -80,27 +80,11 @@ function buildChartData(
 
 const COMPETITOR_COLORS = ['#4A5AFF', '#FF6B35', '#CC3D8A', '#3DB8CC', '#3DAA6A']
 
-// ── Top Cited Competitors sidebar ──────────────────────────────────────────────
-function TopCitedSidebar({ domains, competitorTimeseries, citationRateKPI }: {
-  domains: DomainRow[]
-  competitorTimeseries: { date: string; domain: string; value: number }[]
-  citationRateKPI?: number | null
-}) {
-  // Find Anthropic in domains; if not present derive a placeholder
-  let clay: DomainRow | undefined = domains.find(d => d.is_clay || d.domain.toLowerCase().includes('anthropic.com'))
-  if (!clay) {
-    clay = { domain: 'anthropic.com', citation_count: 0, share_pct: 0, is_clay: true, citation_type: 'Owned', top_urls: [] }
-  }
-
-  // Top 5 non-Anthropic competitor domains only (citation_type === 'Competition'), then always add Anthropic
-  const nonClay = [...domains]
-    .filter(d => !d.is_clay && !d.domain.toLowerCase().includes('anthropic') && d.citation_type === 'Competition')
-    .sort((a, b) => b.share_pct - a.share_pct)
+// ── Top Cited Domains sidebar ──────────────────────────────────────────────────
+function TopCitedSidebar({ domains }: { domains: DomainRow[] }) {
+  const rows = [...domains]
+    .sort((a, b) => b.citation_count - a.citation_count)
     .slice(0, 5)
-
-  // Use KPI value for Clay so it matches the chart and KPI card exactly
-  const clayDisplay = { ...clay, share_pct: citationRateKPI ?? clay.share_pct }
-  const rows = [...nonClay, clayDisplay].sort((a, b) => b.share_pct - a.share_pct)
 
   if (!rows.length) {
     return (
@@ -131,7 +115,7 @@ function TopCitedSidebar({ domains, competitorTimeseries, citationRateKPI }: {
               </div>
             </td>
             <td className="py-1.5 text-right text-[13px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
-              {row.share_pct.toFixed(1)}%
+              {row.citation_count.toLocaleString()}
             </td>
           </tr>
         ))}
@@ -221,12 +205,12 @@ export default function CitationSection({ timeseries, domains, competitorTimeser
           )}
         </div>
 
-        {/* Top Cited Competitors (1/3 width) */}
+        {/* Top Cited Domains (1/3 width) */}
         <div className="p-4" style={cardStyle}>
           <h3 className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: 'rgba(26,25,21,0.45)' }}>
-            Top Cited Competitors
+            Top Cited Domains
           </h3>
-          <TopCitedSidebar domains={domains} competitorTimeseries={competitorTimeseries} citationRateKPI={citationRateKPI} />
+          <TopCitedSidebar domains={domains} />
         </div>
       </div>
 
