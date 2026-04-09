@@ -131,7 +131,7 @@ export default function HomePage() {
   for (const r of competitorVisTimeseries) {
     visCompTotals.set(r.competitor, (visCompTotals.get(r.competitor) ?? 0) + r.value)
   }
-  const topVisComps = [...visCompTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c]) => c)
+  const topVisComps = [...visCompTotals.entries()].sort((a, b) => b[1] - a[1]).filter(([c]) => c !== 'Anthropic').slice(0, 5).map(([c]) => c)
   const sparkLookup = new Map(sparkData.map(r => [r.date, r.value]))
   const visCompLookup = new Map(competitorVisTimeseries.map(r => [`${r.date}|||${r.competitor}`, r.value]))
   const visChartDates = [...new Set([
