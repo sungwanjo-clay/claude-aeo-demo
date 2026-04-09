@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useGlobalFilters } from '@/context/GlobalFilters'
 import { supabase } from '@/lib/supabase/client'
 import { getLatestInsight, getActiveAnomalies } from '@/lib/queries/home'
-import { getVisibilityScore, getDataFreshnessStats, getClayOverallTimeseries, getCompetitorLeaderboard, getCompetitorVisibilityTimeseries, getVisibilityByPMM, getPMMTable, getClaygentTimeseries, getClaygentCount, getFollowupTimeseries, getMentionBreakdown, getPMMPromptDrilldown, getRecommendationRate } from '@/lib/queries/visibility'
+import { getVisibilityScore, getDataFreshnessStats, getClayOverallTimeseries, getCompetitorLeaderboard, getCompetitorVisibilityTimeseries, getVisibilityByPMM, getPMMTable, getClaygentTimeseries, getClaygentCount, getFollowupTimeseries, getMentionBreakdown, getPMMPromptDrilldown, getRecommendationRate, getTop1Rate } from '@/lib/queries/visibility'
 import type { MentionTopicRow } from '@/lib/queries/visibility'
 import { getSentimentBreakdown } from '@/lib/queries/sentiment'
 import { getCitationShare, getCitationOverallTimeseries, getTopCitedDomainsWithURLs, getCompetitorCitationTimeseries } from '@/lib/queries/citations'
@@ -36,6 +36,7 @@ export default function HomePage() {
   const [citationRate, setCitationRate] = useState<{ current: number | null; previous: number | null } | null>(null)
   const [claygentCount, setClaygentCount] = useState<{ current: number; previous: number } | null>(null)
   const [recommendationRate, setRecommendationRate] = useState<{ current: number | null; previous: number | null } | null>(null)
+  const [top1Rate, setTop1Rate] = useState<{ current: number | null; previous: number | null } | null>(null)
   const [avgPos, setAvgPos] = useState<{ current: number | null; previous: number | null } | null>(null)
   const [competitors, setCompetitors] = useState<CompetitorRow[]>([])
   const [sparkData, setSparkData] = useState<{ date: string; value: number }[]>([])
@@ -68,7 +69,8 @@ export default function HomePage() {
       getClayOverallTimeseries(supabase, f),
       getDataFreshnessStats(supabase),
       getRecommendationRate(supabase, f),
-    ]).then(([ins, ano, vis, sent, citRate, claygentCnt, pos, comp, spark, fresh, recRate]) => {
+      getTop1Rate(supabase, f),
+    ]).then(([ins, ano, vis, sent, citRate, claygentCnt, pos, comp, spark, fresh, recRate, t1Rate]) => {
       setInsight(ins)
       setAnomalies(ano)
       setVisibility(vis)
@@ -80,6 +82,7 @@ export default function HomePage() {
       setFreshness(fresh)
       setSparkData(spark)
       setRecommendationRate(recRate)
+      setTop1Rate(t1Rate)
 
       setLoading(false)
     })
@@ -220,17 +223,18 @@ export default function HomePage() {
               invertDelta
             />
             <KpiCard
+              label="#1 Position Rate"
+              value={top1Rate?.current != null ? `${top1Rate.current.toFixed(1)}%` : '—'}
+              delta={top1Rate?.current != null && top1Rate?.previous != null ? top1Rate.current - top1Rate.previous : null}
+              deltaLabel="of Anthropic mentions"
+            />
+            <KpiCard
               label="Positive Sentiment"
               value={sentiment?.positive != null ? `${sentiment.positive.toFixed(1)}%` : '—'}
               delta={null}
               deltaLabel="of Anthropic mentions"
             />
-            <KpiCard
-              label="Recommendation Rate"
-              value={recommendationRate?.current != null ? `${recommendationRate.current.toFixed(1)}%` : '—'}
-              delta={recommendationRate?.current != null && recommendationRate?.previous != null ? recommendationRate.current - recommendationRate.previous : null}
-              deltaLabel="vs prev period"
-            />
+
             <KpiCard
               label="Total Prompts"
               value={visibility?.total != null ? visibility.total.toLocaleString() : '—'}

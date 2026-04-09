@@ -474,6 +474,28 @@ export async function getClaygentCount(
   return { current, previous }
 }
 
+export async function getTop1Rate(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<{ current: number | null; previous: number | null }> {
+  const calc = async (start: string, end: string) => {
+    const { data } = await applyFilters(
+      sb.from('responses').select('clay_mentioned, clay_mention_position'),
+      { ...f, startDate: start, endDate: end }
+    )
+    if (!data?.length) return null
+    const mentioned = data.filter((r: any) => r.clay_mentioned === 'Yes')
+    if (!mentioned.length) return null
+    const top1 = mentioned.filter((r: any) => r.clay_mention_position === 1).length
+    return (top1 / mentioned.length) * 100
+  }
+  const [current, previous] = await Promise.all([
+    calc(f.startDate, f.endDate),
+    calc(f.prevStartDate, f.prevEndDate),
+  ])
+  return { current, previous }
+}
+
 export async function getRecommendationRate(
   sb: SupabaseClient,
   f: FilterParams
