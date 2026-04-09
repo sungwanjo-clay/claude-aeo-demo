@@ -84,7 +84,7 @@ const COMPETITOR_COLORS = ['#4A5AFF', '#FF6B35', '#CC3D8A', '#3DB8CC', '#3DAA6A'
 function TopCitedSidebar({ domains }: { domains: DomainRow[] }) {
   const rows = [...domains]
     .sort((a, b) => b.citation_count - a.citation_count)
-    .slice(0, 5)
+    .slice(0, 6)
 
   if (!rows.length) {
     return (
