@@ -222,13 +222,7 @@ export default function HomePage() {
               delta={null}
               deltaLabel="of Anthropic mentions"
             />
-            <KpiCard
-              label="Claude MCP & API"
-              value={claygentCount?.current != null ? claygentCount.current.toLocaleString() : '—'}
-              delta={claygentCount?.current != null && claygentCount?.previous != null ? claygentCount.current - claygentCount.previous : null}
-              deltaLabel="vs prev period"
-              deltaIsCount
-            />
+
             <KpiCard
               label="Total Prompts"
               value={visibility?.total != null ? visibility.total.toLocaleString() : '—'}
