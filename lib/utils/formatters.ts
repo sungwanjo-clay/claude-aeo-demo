@@ -18,15 +18,23 @@ export function formatScore(value: number | null | undefined, decimals = 1): str
   return value.toFixed(decimals)
 }
 
+function parseDateLocal(date: string | Date): Date {
+  if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const [y, m, d] = date.split('-').map(Number)
+    return new Date(y, m - 1, d)
+  }
+  return typeof date === 'string' ? new Date(date) : date
+}
+
 export function formatDate(date: string | Date | null | undefined): string {
   if (!date) return '—'
-  const d = typeof date === 'string' ? new Date(date) : date
+  const d = parseDateLocal(date)
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 export function formatShortDate(date: string | Date | null | undefined): string {
   if (!date) return '—'
-  const d = typeof date === 'string' ? new Date(date) : date
+  const d = parseDateLocal(date)
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
