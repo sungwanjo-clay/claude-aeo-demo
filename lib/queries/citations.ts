@@ -2,6 +2,15 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import type { FilterParams, CitationDomainRow } from './types'
 
+/** Domains owned by Anthropic — used to identify "our" citations. */
+const OWNED_DOMAINS = ['anthropic.com', 'claude.ai']
+const OWNED_DOMAIN_KEY = 'anthropic.com' // canonical key used in chart lookups
+
+function isOwnedDomain(domain: string): boolean {
+  const d = domain.toLowerCase()
+  return OWNED_DOMAINS.some(owned => d.includes(owned))
+}
+
 /** Fetch all rows from a table by response_id, in batches to stay under
  *  Supabase's 1000-row hard limit per request. */
 async function fetchAllByResponseIds(
@@ -53,7 +62,7 @@ export async function getCitationShare(
         const domains = Array.isArray(r.cited_domains) ? r.cited_domains : JSON.parse(r.cited_domains ?? '[]')
         if (domains.length > 0) {
           withAnyCitations++
-          if (domains.some((d: string) => typeof d === 'string' && d.includes('clay.com'))) withClayCited++
+          if (domains.some((d: string) => typeof d === 'string' && isOwnedDomain(d))) withClayCited++
         }
       } catch { /* ignore */ }
     }
@@ -95,7 +104,7 @@ export async function getCitationDomains(
     citation_type,
     url_type,
     citation_count: count,
-    is_clay: domain.includes('clay.com'),
+    is_clay: isOwnedDomain(domain),
   })).sort((a, b) => b.citation_count - a.citation_count)
 }
 
@@ -117,7 +126,7 @@ export async function getCitationShareTimeseries(
     cur.total++
     try {
       const domains = Array.isArray(row.cited_domains) ? row.cited_domains : JSON.parse(row.cited_domains ?? '[]')
-      if (domains.some((d: string) => typeof d === 'string' && d.includes('clay.com'))) cur.clayCited++
+      if (domains.some((d: string) => typeof d === 'string' && isOwnedDomain(d))) cur.clayCited++
     } catch { /* ignore */ }
     map.set(key, cur)
   }
@@ -215,7 +224,7 @@ export async function getCitationCount(
     return data.filter(r => {
       try {
         const domains = Array.isArray(r.cited_domains) ? r.cited_domains : JSON.parse(r.cited_domains ?? '[]')
-        return domains.some((d: string) => typeof d === 'string' && d.includes('clay.com'))
+        return domains.some((d: string) => typeof d === 'string' && isOwnedDomain(d))
       } catch { return false }
     }).length
   }
@@ -264,8 +273,8 @@ export async function getCompetitorCitationTimeseries(
     if (!date) continue                       // skip responses excluded by topic/branded/promptType filters
     const d = (c.domain ?? '').toLowerCase()
     if (!d) continue
-    const isClay = d.includes('clay.com')
-    const key = isClay ? 'clay.com' : d
+    const isClay = isOwnedDomain(d)
+    const key = isClay ? OWNED_DOMAIN_KEY : d
 
     if (!citingByDate.has(date)) citingByDate.set(date, new Set())
     citingByDate.get(date)!.add(rid)
@@ -281,12 +290,12 @@ export async function getCompetitorCitationTimeseries(
     }
   }
 
-  // Top N competitor domains (Competition type only) + always include clay.com
+  // Top N competitor domains (Competition type only) + always include anthropic.com
   const topNonClay = [...competitorTotals.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, topN)
     .map(([d]) => d)
-  const topDomains = new Set([...topNonClay, 'clay.com'])
+  const topDomains = new Set([...topNonClay, OWNED_DOMAIN_KEY])
 
   const result: { date: string; domain: string; value: number }[] = []
   for (const date of [...citingByDate.keys()].sort()) {
@@ -321,7 +330,7 @@ export async function getCitationOverallTimeseries(
       if (domains.length > 0) {
         const cur = map.get(date) ?? { clayCited: 0, withCitations: 0 }
         cur.withCitations++
-        if (domains.some((d: string) => typeof d === 'string' && d.includes('clay.com'))) cur.clayCited++
+        if (domains.some((d: string) => typeof d === 'string' && isOwnedDomain(d))) cur.clayCited++
         map.set(date, cur)
       }
     } catch { /* ignore */ }
@@ -354,7 +363,7 @@ export async function getTopCitedDomainsWithURLs(
   for (const row of data) {
     const d = (row.domain ?? '').toLowerCase()
     if (!d) continue
-    const cur = domainMap.get(d) ?? { count: 0, is_clay: d.includes('clay.com'), typeCounts: new Map(), urls: new Map() }
+    const cur = domainMap.get(d) ?? { count: 0, is_clay: isOwnedDomain(d), typeCounts: new Map(), urls: new Map() }
     cur.count++
     if (row.citation_type) cur.typeCounts.set(row.citation_type, (cur.typeCounts.get(row.citation_type) ?? 0) + 1)
     if (row.url) {
@@ -370,7 +379,7 @@ export async function getTopCitedDomainsWithURLs(
       // Pick most frequent citation_type for this domain
       const citation_type = typeCounts.size > 0
         ? [...typeCounts.entries()].sort((a, b) => b[1] - a[1])[0][0]
-        : (is_clay ? 'Clay' : null)
+        : (is_clay ? 'Owned' : null)
       return {
         domain,
         citation_count: count,
@@ -521,7 +530,7 @@ export async function getTopCitedDomainsEnhanced(
     const d = (row.domain ?? '').toLowerCase()
     if (!d) continue
     const topic: string | null = row.responses?.topic ?? null
-    const cur = domainMap.get(d) ?? { responseIds: new Set(), is_clay: d.includes('clay.com'), typeCounts: new Map(), urls: new Map() }
+    const cur = domainMap.get(d) ?? { responseIds: new Set(), is_clay: isOwnedDomain(d), typeCounts: new Map(), urls: new Map() }
     if (row.response_id) cur.responseIds.add(row.response_id)
     if (row.citation_type) cur.typeCounts.set(row.citation_type, (cur.typeCounts.get(row.citation_type) ?? 0) + 1)
     if (row.url) {
@@ -538,7 +547,7 @@ export async function getTopCitedDomainsEnhanced(
       const citation_count = responseIds.size || [...urls.values()].reduce((s, u) => s + u.count, 0)
       const citation_type = typeCounts.size > 0
         ? [...typeCounts.entries()].sort((a, b) => b[1] - a[1])[0][0]
-        : (is_clay ? 'Clay' : null)
+        : (is_clay ? 'Owned' : null)
       return {
         domain,
         citation_count,
@@ -593,7 +602,7 @@ export async function getCitationRateByTopic(
       const domains: string[] = Array.isArray(row.cited_domains)
         ? row.cited_domains
         : JSON.parse(row.cited_domains ?? '[]')
-      if (domains.some((d: string) => typeof d === 'string' && d.toLowerCase().includes('clay.com'))) {
+      if (domains.some((d: string) => typeof d === 'string' && isOwnedDomain(d))) {
         cur.withClayCit++
       }
     } catch { /* ignore parse errors */ }

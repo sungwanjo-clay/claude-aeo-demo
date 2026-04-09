@@ -298,7 +298,7 @@ export async function getPMMTable(
     if (row.clay_mention_position != null) entry.positions.push(row.clay_mention_position)
     try {
       const domains = Array.isArray(row.cited_domains) ? row.cited_domains : JSON.parse(row.cited_domains ?? '[]')
-      if (domains.some((d: string) => typeof d === 'string' && d.toLowerCase().includes('clay.com'))) entry.cited++
+      if (domains.some((d: string) => typeof d === 'string' && d.toLowerCase().includes('anthropic.com') || d.toLowerCase().includes('claude.ai'))) entry.cited++
     } catch { /* ignore */ }
     const d = entry.byDate.get(date) ?? { m: 0, t: 0 }
     d.t++
@@ -618,7 +618,7 @@ export async function getMentionBreakdown(
     } catch { /* ignore */ }
 
     const otherDomains = domains
-      .filter((d: string) => typeof d === 'string' && !d.toLowerCase().includes('clay.com'))
+      .filter((d: string) => typeof d === 'string' && !d.toLowerCase().includes('anthropic.com') || d.toLowerCase().includes('claude.ai'))
       .slice(0, 5)
 
     promptMap.get(promptId)!.rows.push({
@@ -730,9 +730,9 @@ export async function getPMMPromptDrilldown(
         : JSON.parse(row.cited_domains ?? '[]')
     } catch { /* ignore */ }
 
-    const clayCited = domains.some((d: string) => typeof d === 'string' && d.toLowerCase().includes('clay.com'))
+    const clayCited = domains.some((d: string) => typeof d === 'string' && d.toLowerCase().includes('anthropic.com') || d.toLowerCase().includes('claude.ai'))
     const otherDomains = domains
-      .filter((d: string) => typeof d === 'string' && !d.toLowerCase().includes('clay.com'))
+      .filter((d: string) => typeof d === 'string' && !d.toLowerCase().includes('anthropic.com') || d.toLowerCase().includes('claude.ai'))
       .slice(0, 5)
 
     cur.rows.push({
