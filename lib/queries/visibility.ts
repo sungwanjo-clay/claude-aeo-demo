@@ -2,6 +2,24 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import type { FilterParams, TimeseriesRow, CompetitorRow } from './types'
 
+/** Fetch all rows from a table by response_id, in batches to stay under
+ *  Supabase's 1000-row hard limit per request. */
+async function fetchAllByResponseIds(
+  sb: SupabaseClient,
+  table: string,
+  columns: string,
+  ids: string[]
+): Promise<any[]> {
+  if (!ids.length) return []
+  const CHUNK = 100 // ~100 IDs × ≤10 rows each = ≤1000 rows per request
+  const chunks: string[][] = []
+  for (let i = 0; i < ids.length; i += CHUNK) chunks.push(ids.slice(i, i + CHUNK))
+  const pages = await Promise.all(
+    chunks.map(chunk => sb.from(table).select(columns).in('response_id', chunk).then((r: any) => r.data ?? []))
+  )
+  return pages.flat()
+}
+
 function applyFilters(query: any, f: FilterParams): any {
   query = query.gte('run_date', f.startDate).lte('run_date', f.endDate)
   if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
@@ -150,18 +168,14 @@ export async function getCompetitorVisibilityTimeseries(
     responseIdToDate.set(r.id, date)
   }
 
-  // Fetch competitor rows by date range directly — avoids huge in() with thousands of IDs
-  const { data: rc } = await sb
-    .from('response_competitors')
-    .select('response_id, competitor_name')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
-    .limit(20000)
+  // Fetch competitor rows by response_id (batched) to avoid Supabase's 1000-row limit
+  const validIdList = [...responseIdToDate.keys()]
+  const rc = await fetchAllByResponseIds(sb, 'response_competitors', 'response_id, competitor_name', validIdList)
 
-  if (!rc?.length) return []
+  if (!rc.length) return []
 
-  // Filter to only responses that passed the platform/topic/etc filters
-  const validIds = new Set(responses.map((r: any) => r.id))
+  // All fetched IDs are already valid (we queried by them)
+  const validIds = new Set(validIdList)
 
   const map = new Map<string, number>()
   for (const row of rc) {

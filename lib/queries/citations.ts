@@ -2,6 +2,24 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import type { FilterParams, CitationDomainRow } from './types'
 
+/** Fetch all rows from a table by response_id, in batches to stay under
+ *  Supabase's 1000-row hard limit per request. */
+async function fetchAllByResponseIds(
+  sb: SupabaseClient,
+  table: string,
+  columns: string,
+  ids: string[]
+): Promise<any[]> {
+  if (!ids.length) return []
+  const CHUNK = 100
+  const chunks: string[][] = []
+  for (let i = 0; i < ids.length; i += CHUNK) chunks.push(ids.slice(i, i + CHUNK))
+  const pages = await Promise.all(
+    chunks.map(chunk => sb.from(table).select(columns).in('response_id', chunk).then((r: any) => r.data ?? []))
+  )
+  return pages.flat()
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function applyResponseFilters(query: any, f: FilterParams): any {
   query = query.gte('run_date', f.startDate).lte('run_date', f.endDate)
@@ -227,15 +245,10 @@ export async function getCompetitorCitationTimeseries(
     if (r.id && date) responseIdToDate.set(String(r.id), date)
   }
 
-  // Step 2: Query citation_domains — include citation_type so we can restrict
-  // competitor lines to citation_type = 'Competition' only; Clay is always pinned.
-  let q = sb.from('citation_domains')
-    .select('domain, response_id, citation_type')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
-  if (f.platforms?.length) q = q.in('platform', f.platforms)
-  const { data: citations } = await (q as any).limit(100000)
-  if (!citations?.length) return []
+  // Step 2: Query citation_domains by response_id (batched) to avoid Supabase's 1000-row limit
+  const validIdList = [...responseIdToDate.keys()]
+  const citations = await fetchAllByResponseIds(sb, 'citation_domains', 'domain, response_id, citation_type', validIdList)
+  if (!citations.length) return []
 
   // Step 3: Compute per-date unique response counts
   // Denominator: unique response_ids with any citation entry per date
@@ -323,14 +336,16 @@ export async function getTopCitedDomainsWithURLs(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ domain: string; citation_count: number; share_pct: number; is_clay: boolean; citation_type: string | null; top_urls: { url: string; title: string | null; count: number }[] }[]> {
-  let query = sb
-    .from('citation_domains')
-    .select('domain, url, title, citation_type')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
-  if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
+  // First fetch all filtered response IDs, then query citation_domains by response_id
+  // to avoid Supabase's 1000-row hard limit on date-range queries.
+  const { data: responses } = await applyResponseFilters(
+    sb.from('responses').select('id'),
+    f
+  ).limit(20000)
+  if (!responses?.length) return []
 
-  const { data } = await query
+  const validIdList = responses.map((r: any) => String(r.id))
+  const data = await fetchAllByResponseIds(sb, 'citation_domains', 'domain, url, title, citation_type', validIdList)
   if (!data?.length) return []
 
   const total = data.length
