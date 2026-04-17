@@ -31,7 +31,8 @@ async function fetchAllByResponseIds(
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function applyResponseFilters(query: any, f: FilterParams): any {
-  query = query.gte('run_date', f.startDate).lte('run_date', f.endDate)
+  // Use run_day (DATE column) for filtering to avoid UTC timestamp timezone skew
+  query = query.gte('run_day', f.startDate.substring(0, 10)).lte('run_day', f.endDate.substring(0, 10))
   if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
   if (f.topics && f.topics.length > 0) query = query.in('topic', f.topics)
   if (f.promptType === 'benchmark') {
@@ -113,14 +114,14 @@ export async function getCitationShareTimeseries(
   f: FilterParams
 ): Promise<{ date: string; platform: string; value: number }[]> {
   const { data } = await applyResponseFilters(
-    sb.from('responses').select('run_date, platform, cited_domains'),
+    sb.from('responses').select('run_day, platform, cited_domains'),
     f
   ).limit(50000)
   if (!data) return []
 
   const map = new Map<string, { clayCited: number; total: number }>()
   for (const row of data) {
-    const date = row.run_date?.split('T')[0] ?? ''
+    const date = row.run_day ?? ''
     const key = `${date}|||${row.platform}`
     const cur = map.get(key) ?? { clayCited: 0, total: 0 }
     cur.total++
@@ -242,15 +243,14 @@ export async function getCompetitorCitationTimeseries(
 ): Promise<{ date: string; domain: string; value: number }[]> {
   // Step 1: Get filtered response IDs (applies all filters: topic, branded, promptType, platform)
   const { data: responses } = await applyResponseFilters(
-    sb.from('responses').select('id, run_date'),
+    sb.from('responses').select('id, run_day'),
     f
   ).limit(50000)
   if (!responses?.length) return []
 
-  // Build a map of response_id -> date for fast lookup
   const responseIdToDate = new Map<string, string>()
   for (const r of responses) {
-    const date = (r.run_date ?? '').substring(0, 10)
+    const date = r.run_day ?? ''
     if (r.id && date) responseIdToDate.set(String(r.id), date)
   }
 
@@ -314,16 +314,15 @@ export async function getCitationOverallTimeseries(
   f: FilterParams
 ): Promise<{ date: string; value: number }[]> {
   const { data, error } = await applyResponseFilters(
-    sb.from('responses').select('run_date, cited_domains'),
+    sb.from('responses').select('run_day, cited_domains'),
     f
   ).limit(10000)
   if (error) { console.error('getCitationOverallTimeseries', error); return [] }
   if (!data) return []
 
-  // Citation rate per day: clay-cited / responses-with-any-citations
   const map = new Map<string, { clayCited: number; withCitations: number }>()
   for (const row of data) {
-    const date = (row.run_date ?? '').substring(0, 10)
+    const date = row.run_day ?? ''
     if (!date) continue
     try {
       const domains = Array.isArray(row.cited_domains) ? row.cited_domains : JSON.parse(row.cited_domains ?? '[]')
@@ -581,18 +580,17 @@ export async function getCitationRateByTopic(
   f: FilterParams
 ): Promise<TopicCitationRow[]> {
   const { data, error } = await applyResponseFilters(
-    sb.from('responses').select('run_date, topic, cited_domains'),
+    sb.from('responses').select('run_day, topic, cited_domains'),
     f
   ).not('topic', 'is', null).limit(20000)
 
   if (error) { console.error('getCitationRateByTopic', error); return [] }
   if (!data?.length) return []
 
-  // Accumulate per date × topic
   const map = new Map<string, { total: number; withClayCit: number }>()
 
   for (const row of data) {
-    const date = (row.run_date ?? '').substring(0, 10)
+    const date = row.run_day ?? ''
     const topic: string = row.topic ?? 'Unknown'
     if (!date || !topic) continue
     const key = `${date}|||${topic}`

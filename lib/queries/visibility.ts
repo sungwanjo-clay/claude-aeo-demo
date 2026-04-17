@@ -21,7 +21,8 @@ async function fetchAllByResponseIds(
 }
 
 function applyFilters(query: any, f: FilterParams): any {
-  query = query.gte('run_date', f.startDate).lte('run_date', f.endDate)
+  // Use run_day (DATE column) for filtering to avoid UTC timestamp timezone skew
+  query = query.gte('run_day', f.startDate.substring(0, 10)).lte('run_day', f.endDate.substring(0, 10))
   if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
   if (f.topics && f.topics.length > 0) query = query.in('topic', f.topics)
   if (f.brandedFilter !== 'all') {
@@ -65,14 +66,14 @@ export async function getClayOverallTimeseries(
   f: FilterParams
 ): Promise<{ date: string; value: number }[]> {
   const { data } = await applyFilters(
-    sb.from('responses').select('run_date, clay_mentioned'),
+    sb.from('responses').select('run_day, clay_mentioned'),
     f
   ).limit(20000)
   if (!data) return []
 
   const map = new Map<string, { total: number; mentioned: number }>()
   for (const row of data) {
-    const date = (row.run_date ?? '').substring(0, 10)
+    const date = row.run_day ?? ''
     if (!date) continue
     const cur = map.get(date) ?? { total: 0, mentioned: 0 }
     cur.total++
@@ -126,14 +127,14 @@ export async function getVisibilityTimeseries(
   f: FilterParams
 ): Promise<TimeseriesRow[]> {
   const { data } = await applyFilters(
-    sb.from('responses').select('run_date, platform, clay_mentioned'),
+    sb.from('responses').select('run_day, platform, clay_mentioned'),
     f
   )
   if (!data) return []
 
   const map = new Map<string, { total: number; mentioned: number }>()
   for (const row of data) {
-    const date = (row.run_date ?? '').substring(0, 10)
+    const date = row.run_day ?? ''
     if (!date) continue
     const key = `${date}|||${row.platform}`
     const cur = map.get(key) ?? { total: 0, mentioned: 0 }
@@ -154,7 +155,7 @@ export async function getCompetitorVisibilityTimeseries(
 ): Promise<{ date: string; competitor: string; value: number }[]> {
   // Get total responses per day for denominator (also used to enforce platform/topic filters)
   const { data: responses } = await applyFilters(
-    sb.from('responses').select('id, run_date'),
+    sb.from('responses').select('id, run_day'),
     f
   ).limit(20000)
   if (!responses?.length) return []
@@ -162,7 +163,7 @@ export async function getCompetitorVisibilityTimeseries(
   const totalByDate = new Map<string, number>()
   const responseIdToDate = new Map<string, string>()
   for (const r of responses) {
-    const date = (r.run_date ?? '').substring(0, 10)
+    const date = r.run_day ?? ''
     if (!date) continue
     totalByDate.set(date, (totalByDate.get(date) ?? 0) + 1)
     responseIdToDate.set(r.id, date)
@@ -249,7 +250,7 @@ export async function getVisibilityByPMM(
   f: FilterParams
 ): Promise<TimeseriesRow[]> {
   const { data } = await applyFilters(
-    sb.from('responses').select('run_date, pmm_use_case, clay_mentioned'),
+    sb.from('responses').select('run_day, pmm_use_case, clay_mentioned'),
     f
   )
   if (!data) return []
@@ -257,7 +258,7 @@ export async function getVisibilityByPMM(
   const map = new Map<string, { total: number; mentioned: number }>()
   for (const row of data) {
     if (!row.pmm_use_case) continue
-    const date = (row.run_date ?? '').substring(0, 10)
+    const date = row.run_day ?? ''
     if (!date) continue
     const key = `${date}|||${row.pmm_use_case}`
     const cur = map.get(key) ?? { total: 0, mentioned: 0 }
@@ -277,14 +278,14 @@ export async function getPMMTable(
   f: FilterParams
 ): Promise<{ pmm_use_case: string; visibility_score: number; delta: number | null; citation_share: number | null; avg_position: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]> {
   const [cur, prev] = await Promise.all([
-    applyFilters(sb.from('responses').select('run_date, pmm_use_case, clay_mentioned, cited_domains, clay_mention_position'), f).then((r: any) => r.data ?? []),
+    applyFilters(sb.from('responses').select('run_day, pmm_use_case, clay_mentioned, cited_domains, clay_mention_position'), f).then((r: any) => r.data ?? []),
     applyFilters(sb.from('responses').select('pmm_use_case, clay_mentioned'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }).then((r: any) => r.data ?? []),
   ])
 
   const curMap = new Map<string, { mentioned: number; total: number; cited: number; positions: number[]; byDate: Map<string, { m: number; t: number }> }>()
   for (const row of cur) {
     if (!row.pmm_use_case) continue
-    const date = (row.run_date ?? '').substring(0, 10)
+    const date = row.run_day ?? ''
     if (!curMap.has(row.pmm_use_case)) curMap.set(row.pmm_use_case, { mentioned: 0, total: 0, cited: 0, positions: [], byDate: new Map() })
     const entry = curMap.get(row.pmm_use_case)!
     entry.total++
@@ -333,14 +334,14 @@ export async function getVisibilityByTopic(
   f: FilterParams
 ): Promise<TimeseriesRow[]> {
   const { data } = await applyFilters(
-    sb.from('responses').select('run_date, topic, clay_mentioned'),
+    sb.from('responses').select('run_day, topic, clay_mentioned'),
     f
   )
   if (!data) return []
 
   const map = new Map<string, { total: number; mentioned: number }>()
   for (const row of data) {
-    const date = (row.run_date ?? '').substring(0, 10)
+    const date = row.run_day ?? ''
     if (!date) continue
     const key = `${date}|||${row.topic ?? 'Unknown'}`
     const cur = map.get(key) ?? { total: 0, mentioned: 0 }
@@ -515,7 +516,7 @@ export async function getClaygentTimeseriesByPlatform(
   f: FilterParams
 ): Promise<{ date: string; platform: string; count: number }[]> {
   const { data } = await applyFilters(
-    sb.from('responses').select('run_date, platform, claygent_or_mcp_mentioned'),
+    sb.from('responses').select('run_day, platform, claygent_or_mcp_mentioned'),
     f
   ).limit(10000)
   if (!data) return []
@@ -525,7 +526,7 @@ export async function getClaygentTimeseriesByPlatform(
   const allPlatforms = new Set<string>()
 
   for (const row of data) {
-    const date = (row.run_date ?? '').substring(0, 10)
+    const date = row.run_day ?? ''
     const platform = row.platform ?? 'Unknown'
     if (!date) continue
     allDates.add(date)
@@ -550,22 +551,21 @@ export async function getClaygentTimeseries(
   f: FilterParams
 ): Promise<{ date: string; count: number }[]> {
   const { data } = await applyFilters(
-    sb.from('responses').select('run_date, claygent_or_mcp_mentioned'),
+    sb.from('responses').select('run_day, claygent_or_mcp_mentioned'),
     f
   )
   if (!data) return []
 
   const map = new Map<string, number>()
   for (const row of data) {
-    const date = (row.run_date ?? '').substring(0, 10)
+    const date = row.run_day ?? ''
     if (!date) continue
     if (row.claygent_or_mcp_mentioned === 'Yes') {
       map.set(date, (map.get(date) ?? 0) + 1)
     }
   }
 
-  // Ensure dates with zero mentions still appear
-  const allDates = [...new Set(data.map(r => (r.run_date ?? '').substring(0, 10)).filter(Boolean))]
+  const allDates = [...new Set(data.map((r: any) => r.run_day ?? '').filter(Boolean))]
   return allDates
     .map(date => ({ date, count: map.get(date) ?? 0 }))
     .sort((a, b) => a.date.localeCompare(b.date))
@@ -692,21 +692,21 @@ export async function getFollowupTimeseries(
   f: FilterParams
 ): Promise<{ date: string; count: number }[]> {
   const { data } = await applyFilters(
-    sb.from('responses').select('run_date, clay_recommended_followup'),
+    sb.from('responses').select('run_day, clay_recommended_followup'),
     f
   )
   if (!data) return []
 
   const map = new Map<string, number>()
   for (const row of data) {
-    const date = (row.run_date ?? '').substring(0, 10)
+    const date = row.run_day ?? ''
     if (!date) continue
     if (row.clay_recommended_followup === 'Yes') {
       map.set(date, (map.get(date) ?? 0) + 1)
     }
   }
 
-  const allDates = [...new Set(data.map(r => (r.run_date ?? '').substring(0, 10)).filter(Boolean))]
+  const allDates = [...new Set(data.map((r: any) => r.run_day ?? '').filter(Boolean))]
   return allDates
     .map(date => ({ date, count: map.get(date) ?? 0 }))
     .sort((a, b) => a.date.localeCompare(b.date))
