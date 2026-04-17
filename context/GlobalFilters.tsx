@@ -30,8 +30,9 @@ function computeComparisonRange(start: Date, end: Date): { start: Date; end: Dat
 
 function defaultFilters(): GlobalFilters {
   const end = new Date()
-  const start = new Date()
-  start.setDate(start.getDate() - 14)
+  end.setDate(end.getDate() - 1)   // yesterday — last day guaranteed to have full data
+  const start = new Date(end)
+  start.setDate(start.getDate() - 9) // 10-day window ending yesterday
   return {
     promptType: 'all',
     tags: 'all',
