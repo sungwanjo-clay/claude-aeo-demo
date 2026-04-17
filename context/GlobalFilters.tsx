@@ -31,7 +31,7 @@ function computeComparisonRange(start: Date, end: Date): { start: Date; end: Dat
 function defaultFilters(): GlobalFilters {
   const end = new Date()
   const start = new Date()
-  start.setDate(start.getDate() - 7)
+  start.setDate(start.getDate() - 14)
   return {
     promptType: 'all',
     tags: 'all',
