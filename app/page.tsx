@@ -70,8 +70,22 @@ export default function HomePage() {
       getDataFreshnessStats(supabase),
       getRecommendationRate(supabase, f),
       getTop1Rate(supabase, f),
-    ]).then(([ins, ano, vis, sent, citRate, claygentCnt, pos, comp, spark, fresh, recRate, t1Rate]) => {
-      setInsight(ins)
+    ]).then(async ([ins, ano, vis, sent, citRate, claygentCnt, pos, comp, spark, fresh, recRate, t1Rate]) => {
+      const today = new Date().toISOString().split('T')[0]
+      let resolvedInsight = ins as InsightRow | null
+
+      // Auto-generate today's insight if missing
+      if (!resolvedInsight || resolvedInsight.run_date?.substring(0, 10) !== today) {
+        try {
+          const res = await fetch('/api/generate-insight', { method: 'POST' })
+          const json = await res.json()
+          if (json.ok && json.insight) resolvedInsight = json.insight
+        } catch {
+          // silent — insight card will show fallback
+        }
+      }
+
+      setInsight(resolvedInsight)
       setAnomalies(ano)
       setVisibility(vis)
       setSentiment({ positive: sent.positive })
@@ -324,7 +338,7 @@ export default function HomePage() {
           <h3 className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: 'rgba(26,25,21,0.45)' }}>Top Mentioned Competitors</h3>
           {loading ? (
             <SkeletonCard />
-          ) : competitors.length > 0 ? (
+          ) : sortedCompetitors.length > 0 ? (
             <table className="w-full">
               <tbody>
                 {sortedCompetitors.map((row, idx) => {

@@ -67,7 +67,7 @@ export async function getClayOverallTimeseries(
   const { data } = await applyFilters(
     sb.from('responses').select('run_date, clay_mentioned'),
     f
-  )
+  ).limit(20000)
   if (!data) return []
 
   const map = new Map<string, { total: number; mentioned: number }>()
@@ -211,27 +211,21 @@ export async function getCompetitorLeaderboard(
 
   if (totalNow === 0) return []
 
-  // Step 2: fetch RC rows by date range directly — avoids huge in() URLs that Supabase rejects
-  const curIdSet = new Set(curIds)
-  const prevIdSet = new Set(prevIds)
-
-  const [rcCur, rcPrev] = await Promise.all([
-    sb.from('response_competitors').select('competitor_name, response_id')
-      .gte('run_date', f.startDate).lte('run_date', f.endDate).limit(20000),
-    sb.from('response_competitors').select('competitor_name, response_id')
-      .gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate).limit(20000),
+  // Step 2: fetch RC rows by response_id batches — avoids date-range issues when
+  // response_competitors.run_date is NULL (no NOT NULL constraint / default in schema)
+  const [rcCurRows, rcPrevRows] = await Promise.all([
+    fetchAllByResponseIds(sb, 'response_competitors', 'competitor_name, response_id', curIds),
+    fetchAllByResponseIds(sb, 'response_competitors', 'competitor_name, response_id', prevIds),
   ])
 
   const curCounts = new Map<string, Set<string>>()
-  for (const r of rcCur.data ?? []) {
-    if (!curIdSet.has(r.response_id)) continue // enforce platform/topic filters
+  for (const r of rcCurRows) {
     if (!curCounts.has(r.competitor_name)) curCounts.set(r.competitor_name, new Set())
     curCounts.get(r.competitor_name)!.add(r.response_id)
   }
 
   const prevCounts = new Map<string, Set<string>>()
-  for (const r of rcPrev.data ?? []) {
-    if (!prevIdSet.has(r.response_id)) continue // enforce platform/topic filters
+  for (const r of rcPrevRows) {
     if (!prevCounts.has(r.competitor_name)) prevCounts.set(r.competitor_name, new Set())
     prevCounts.get(r.competitor_name)!.add(r.response_id)
   }
