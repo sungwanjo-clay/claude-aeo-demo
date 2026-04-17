@@ -43,19 +43,30 @@ async function generateInsight(req?: Request) {
     return NextResponse.json({ ok: false, error: 'No data ingested in the last 2 days' }, { status: 404 })
   }
 
-  // Fetch last 14 days
+  // Fetch last 14 days — use run_day (DATE) to avoid UTC timezone skew
   const since = new Date()
   since.setDate(since.getDate() - 14)
   const startDate = since.toISOString().split('T')[0]
 
-  const { data: responses, error: fetchErr } = await supabase
-    .from('responses')
-    .select('run_date, platform, topic, clay_mentioned, brand_sentiment_score, clay_recommended_followup, claygent_or_mcp_mentioned, cited_domains')
-    .gte('run_date', startDate)
-    .lte('run_date', today)
-    .limit(50000)
+  const cols = 'run_day, platform, topic, clay_mentioned, brand_sentiment_score, clay_recommended_followup, claygent_or_mcp_mentioned, cited_domains'
+  const PAGE = 1000
+  const responses: any[] = []
+  let from = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('responses')
+      .select(cols)
+      .gte('run_day', startDate)
+      .lte('run_day', today)
+      .range(from, from + PAGE - 1)
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
+    if (!data?.length) break
+    responses.push(...data)
+    if (data.length < PAGE) break
+    from += PAGE
+  }
 
-  if (fetchErr || !responses?.length) {
+  if (!responses.length) {
     return NextResponse.json({ ok: false, error: 'No response data found' }, { status: 400 })
   }
 
@@ -73,7 +84,7 @@ async function generateInsight(req?: Request) {
   }
 
   for (const r of responses) {
-    const date = (r.run_date ?? '').substring(0, 10)
+    const date = (r.run_day ?? '').substring(0, 10)
     if (!date) continue
     const platform = r.platform ?? 'Unknown'
     const domains: string[] = Array.isArray(r.cited_domains) ? r.cited_domains : []
