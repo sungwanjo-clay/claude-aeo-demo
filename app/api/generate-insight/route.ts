@@ -5,7 +5,7 @@ function isTruthy(val: unknown): boolean {
   return val === true || val === 'Yes' || val === 'yes' || val === 1
 }
 
-export async function POST() {
+async function generateInsight(req?: Request) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   const anthropicKey = process.env.ANTHROPIC_API_KEY
@@ -28,15 +28,19 @@ export async function POST() {
 
   if (existing) return NextResponse.json({ ok: true, insight: existing, cached: true })
 
-  // Only generate if data exists for today
-  const { data: todayCheck } = await supabase
+  // Check for recent data (last 2 days) — data may have run yesterday if today's hasn't yet
+  const twoDaysAgo = new Date()
+  twoDaysAgo.setDate(twoDaysAgo.getDate() - 2)
+  const recentCutoff = twoDaysAgo.toISOString().split('T')[0]
+
+  const { data: recentCheck } = await supabase
     .from('responses')
     .select('id')
-    .gte('run_date', today)
+    .gte('run_day', recentCutoff)
     .limit(1)
 
-  if (!todayCheck?.length) {
-    return NextResponse.json({ ok: false, error: 'No data ingested for today yet' }, { status: 404 })
+  if (!recentCheck?.length) {
+    return NextResponse.json({ ok: false, error: 'No data ingested in the last 2 days' }, { status: 404 })
   }
 
   // Fetch last 14 days
@@ -224,4 +228,21 @@ export async function POST() {
   if (insertErr) return NextResponse.json({ ok: false, error: insertErr.message }, { status: 500 })
 
   return NextResponse.json({ ok: true, insight: inserted })
+}
+
+// POST: called from the dashboard frontend
+export async function POST(req: Request) {
+  return generateInsight(req)
+}
+
+// GET: called by Vercel cron — requires Authorization: Bearer <CRON_SECRET>
+export async function GET(req: Request) {
+  const cronSecret = process.env.CRON_SECRET
+  if (cronSecret) {
+    const auth = req.headers.get('authorization') ?? ''
+    if (auth !== `Bearer ${cronSecret}`) {
+      return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+    }
+  }
+  return generateInsight(req)
 }
