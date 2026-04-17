@@ -5,7 +5,8 @@ import type { FilterParams, CompetitorRow } from './types'
 // ── helpers ────────────────────────────────────────────────────────────────
 
 function applyFilters(query: any, f: FilterParams): any {
-  query = query.gte('run_date', f.startDate).lte('run_date', f.endDate)
+  // Use run_day (DATE column) to avoid UTC timezone skew from run_date (TIMESTAMPTZ)
+  query = query.gte('run_day', f.startDate.substring(0, 10)).lte('run_day', f.endDate.substring(0, 10))
   if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
   if (f.topics && f.topics.length > 0) query = query.in('topic', f.topics)
   if (f.brandedFilter !== 'all') {
@@ -19,6 +20,51 @@ function applyFilters(query: any, f: FilterParams): any {
   }
   if (f.tags && f.tags !== 'all') query = query.eq('tags', f.tags)
   return query
+}
+
+async function fetchAllFilteredRows(
+  sb: SupabaseClient,
+  columns: string,
+  f: FilterParams,
+  extraFilters?: (q: any) => any
+): Promise<any[]> {
+  const PAGE = 1000
+  const rows: any[] = []
+  let from = 0
+  while (true) {
+    let q = applyFilters(sb.from('responses').select(columns), f).range(from, from + PAGE - 1)
+    if (extraFilters) q = extraFilters(q)
+    const { data } = await q
+    if (!data?.length) break
+    rows.push(...data)
+    if (data.length < PAGE) break
+    from += PAGE
+  }
+  return rows
+}
+
+async function fetchAllCompetitorRows(
+  sb: SupabaseClient,
+  columns: string,
+  startDate: string,
+  endDate: string,
+  extraFilters?: (q: any) => any
+): Promise<any[]> {
+  const PAGE = 1000
+  const rows: any[] = []
+  let from = 0
+  while (true) {
+    let q = sb.from('response_competitors').select(columns)
+      .gte('run_date', startDate).lte('run_date', endDate)
+      .range(from, from + PAGE - 1)
+    if (extraFilters) q = extraFilters(q)
+    const { data } = await q
+    if (!data?.length) break
+    rows.push(...data)
+    if (data.length < PAGE) break
+    from += PAGE
+  }
+  return rows
 }
 
 /** Derive a search slug from a competitor name for domain matching.
@@ -54,13 +100,10 @@ export async function getClayKPIs(
   topTopic: string | null
   topPlatform: string | null
 }> {
-  const [curData, prevData] = await Promise.all([
-    applyFilters(sb.from('responses').select('clay_mentioned, clay_mention_position, topic, platform, cited_domains'), f),
-    applyFilters(sb.from('responses').select('clay_mentioned, cited_domains'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
+  const [cur, prev] = await Promise.all([
+    fetchAllFilteredRows(sb, 'clay_mentioned, clay_mention_position, topic, platform, cited_domains', f),
+    fetchAllFilteredRows(sb, 'clay_mentioned, cited_domains', { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
   ])
-
-  const cur = curData.data ?? []
-  const prev = prevData.data ?? []
 
   // Visibility
   const mentionedCur = cur.filter(r => r.clay_mentioned === 'Yes')
@@ -119,15 +162,12 @@ export async function getClayVisibilityTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; value: number }[]> {
-  const { data } = await applyFilters(
-    sb.from('responses').select('run_date, clay_mentioned'),
-    f
-  )
-  if (!data) return []
+  const data = await fetchAllFilteredRows(sb, 'run_day, clay_mentioned', f)
+  if (!data.length) return []
 
   const map = new Map<string, { total: number; yes: number }>()
   for (const r of data) {
-    const d = (r.run_date ?? '').substring(0, 10)
+    const d = r.run_day ?? ''
     if (!d) continue
     const cur = map.get(d) ?? { total: 0, yes: 0 }
     cur.total++
@@ -214,28 +254,24 @@ export async function getWinnersAndLosers(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ competitor_name: string; current: number; previous: number | null; delta: number | null; isNew: boolean }[]> {
-  const [rcCur, rcPrev, totalCur, totalPrev] = await Promise.all([
-    sb.from('response_competitors')
-      .select('competitor_name, response_id')
-      .gte('run_date', f.startDate).lte('run_date', f.endDate),
-    sb.from('response_competitors')
-      .select('competitor_name, response_id')
-      .gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate),
-    applyFilters(sb.from('responses').select('id'), f).limit(20000).then(r => r.data ?? []),
-    applyFilters(sb.from('responses').select('id'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }).limit(20000).then(r => r.data ?? []),
+  const [rcCurData, rcPrevData, totalCur, totalPrev] = await Promise.all([
+    fetchAllCompetitorRows(sb, 'competitor_name, response_id', f.startDate, f.endDate),
+    fetchAllCompetitorRows(sb, 'competitor_name, response_id', f.prevStartDate, f.prevEndDate),
+    fetchAllFilteredRows(sb, 'id', f),
+    fetchAllFilteredRows(sb, 'id', { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
   ])
 
   const totalNow = totalCur.length
   const totalPrevCount = totalPrev.length
 
   const curCounts = new Map<string, Set<string>>()
-  for (const r of rcCur.data ?? []) {
+  for (const r of rcCurData) {
     if (!curCounts.has(r.competitor_name)) curCounts.set(r.competitor_name, new Set())
     curCounts.get(r.competitor_name)!.add(r.response_id)
   }
 
   const prevCounts = new Map<string, Set<string>>()
-  for (const r of rcPrev.data ?? []) {
+  for (const r of rcPrevData) {
     if (!prevCounts.has(r.competitor_name)) prevCounts.set(r.competitor_name, new Set())
     prevCounts.get(r.competitor_name)!.add(r.response_id)
   }
@@ -262,11 +298,8 @@ export async function getCompetitorByPMMTopic(
 ): Promise<{ pmm_use_case: string; visibility_score: number; mention_count: number }[]> {
   // For Clay, compute from responses.clay_mentioned = 'Yes'
   if (competitor === 'Clay') {
-    const { data } = await sb.from('responses')
-      .select('pmm_use_case, clay_mentioned')
-      .gte('run_date', f.startDate).lte('run_date', f.endDate)
-      .not('pmm_use_case', 'is', null)
-    if (!data?.length) return []
+    const data = await fetchAllFilteredRows(sb, 'pmm_use_case, clay_mentioned', f, (q: any) => q.not('pmm_use_case', 'is', null))
+    if (!data.length) return []
 
     const totalsMap = new Map<string, number>()
     const mentionsMap = new Map<string, number>()
@@ -284,27 +317,18 @@ export async function getCompetitorByPMMTopic(
   }
 
   // For a real competitor, look at response_competitors
-  const { data: rcData } = await sb
-    .from('response_competitors')
-    .select('response_id')
-    .eq('competitor_name', competitor)
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
+  const [rcData, allResponses] = await Promise.all([
+    fetchAllCompetitorRows(sb, 'response_id', f.startDate, f.endDate, (q: any) => q.eq('competitor_name', competitor)),
+    fetchAllFilteredRows(sb, 'id, pmm_use_case', f, (q: any) => q.not('pmm_use_case', 'is', null)),
+  ])
 
-  const competitorResponseIds = new Set((rcData ?? []).map(r => r.response_id))
+  const competitorResponseIds = new Set(rcData.map((r: any) => r.response_id))
 
-  const { data: allResponses } = await sb
-    .from('responses')
-    .select('id, pmm_use_case')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
-    .not('pmm_use_case', 'is', null)
-
-  if (!allResponses?.length) return []
+  if (!allResponses.length) return []
 
   const totalsMap = new Map<string, number>()
   const mentionsMap = new Map<string, number>()
-  for (const r of allResponses) {
+  for (const r of allResponses as any[]) {
     const uc = r.pmm_use_case
     if (!uc) continue
     totalsMap.set(uc, (totalsMap.get(uc) ?? 0) + 1)
@@ -383,25 +407,12 @@ export async function getCompetitorKPIs(
   f: FilterParams,
   competitor: string
 ): Promise<{ visibilityScore: number | null; mentionCount: number; avgPosition: number | null; topTopic: string | null; topPlatform: string | null; deltaVisibility: number | null }> {
-  const [rcRes, totalRes, prevRcRes, prevTotalRes] = await Promise.all([
-    sb.from('response_competitors')
-      .select('response_id, platform, topic')
-      .eq('competitor_name', competitor)
-      .gte('run_date', f.startDate)
-      .lte('run_date', f.endDate),
-    sb.from('responses').select('id').gte('run_date', f.startDate).lte('run_date', f.endDate),
-    sb.from('response_competitors')
-      .select('response_id')
-      .eq('competitor_name', competitor)
-      .gte('run_date', f.prevStartDate)
-      .lte('run_date', f.prevEndDate),
-    sb.from('responses').select('id').gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate),
+  const [rcData, total, prevRcData, prevTotal] = await Promise.all([
+    fetchAllCompetitorRows(sb, 'response_id, platform, topic', f.startDate, f.endDate, (q: any) => q.eq('competitor_name', competitor)),
+    fetchAllFilteredRows(sb, 'id', f),
+    fetchAllCompetitorRows(sb, 'response_id', f.prevStartDate, f.prevEndDate, (q: any) => q.eq('competitor_name', competitor)),
+    fetchAllFilteredRows(sb, 'id', { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
   ])
-
-  const rcData = rcRes.data ?? []
-  const total = totalRes.data ?? []
-  const prevRcData = prevRcRes.data ?? []
-  const prevTotal = prevTotalRes.data ?? []
 
   if (!rcData.length) return { visibilityScore: null, mentionCount: 0, avgPosition: null, topTopic: null, topPlatform: null, deltaVisibility: null }
 
@@ -435,20 +446,13 @@ export async function getPlatformHeatmap(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ competitor: string; platform: string; visibility_score: number }[]> {
-  const [rcRes, totalRes] = await Promise.all([
-    sb.from('response_competitors')
-      .select('competitor_name, platform')
-      .gte('run_date', f.startDate)
-      .lte('run_date', f.endDate),
-    sb.from('responses')
-      .select('platform')
-      .gte('run_date', f.startDate)
-      .lte('run_date', f.endDate),
+  const [rc, totalData] = await Promise.all([
+    fetchAllCompetitorRows(sb, 'competitor_name, platform', f.startDate, f.endDate),
+    fetchAllFilteredRows(sb, 'platform', f),
   ])
 
-  const rc = rcRes.data ?? []
   const totals = new Map<string, number>()
-  for (const r of totalRes.data ?? []) {
+  for (const r of totalData) {
     totals.set(r.platform, (totals.get(r.platform) ?? 0) + 1)
   }
 
@@ -475,34 +479,35 @@ export async function getCompetitorVsClayTimeseries(
   f: FilterParams,
   competitor: string
 ): Promise<{ date: string; clay: number; competitor: number }[]> {
-  const [rcData, clayData] = await Promise.all([
-    sb.from('response_competitors')
-      .select('run_date, response_id')
-      .eq('competitor_name', competitor)
-      .gte('run_date', f.startDate)
-      .lte('run_date', f.endDate),
-    sb.from('responses')
-      .select('run_date, clay_mentioned')
-      .gte('run_date', f.startDate)
-      .lte('run_date', f.endDate),
+  // Get all response IDs in date range so we can map competitor rows to correct dates
+  const [allResponses, compRcData] = await Promise.all([
+    fetchAllFilteredRows(sb, 'id, run_day, clay_mentioned', f),
+    fetchAllCompetitorRows(sb, 'response_id', f.startDate, f.endDate, (q: any) => q.eq('competitor_name', competitor)),
   ])
 
+  const responseIdToDay = new Map<string, string>()
+  for (const r of allResponses) {
+    if (r.id && r.run_day) responseIdToDay.set(String(r.id), r.run_day)
+  }
+
+  const compResponseIds = new Set(compRcData.map((r: any) => String(r.response_id)))
+
   const compByDate = new Map<string, number>()
-  for (const r of rcData.data ?? []) {
-    const d = r.run_date?.split('T')[0] ?? ''
-    compByDate.set(d, (compByDate.get(d) ?? 0) + 1)
+  for (const rid of compResponseIds) {
+    const d = responseIdToDay.get(rid)
+    if (d) compByDate.set(d, (compByDate.get(d) ?? 0) + 1)
   }
 
   const clayByDate = new Map<string, { total: number; yes: number }>()
-  for (const r of clayData.data ?? []) {
-    const d = r.run_date?.split('T')[0] ?? ''
+  for (const r of allResponses) {
+    const d = r.run_day ?? ''
     const cur = clayByDate.get(d) ?? { total: 0, yes: 0 }
     cur.total++
     if (r.clay_mentioned === 'Yes') cur.yes++
     clayByDate.set(d, cur)
   }
 
-  const allDates = new Set([...compByDate.keys(), ...clayByDate.keys()])
+  const allDates = new Set([...compByDate.keys(), ...clayByDate.keys()].filter(Boolean))
   return Array.from(allDates).sort().map(date => {
     const totalForDate = clayByDate.get(date)?.total ?? 0
     const clayScore = totalForDate > 0 ? ((clayByDate.get(date)?.yes ?? 0) / totalForDate) * 100 : 0
@@ -696,26 +701,14 @@ export async function getCompetitorPMMComparison(
 ): Promise<PMMCompRow[]> {
   const isClay = competitor === 'Clay'
 
-  const { data: responses } = await sb
-    .from('responses')
-    .select('id, pmm_use_case, clay_mentioned')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
-    .not('pmm_use_case', 'is', null)
+  const [responses, rcData] = await Promise.all([
+    fetchAllFilteredRows(sb, 'id, pmm_use_case, clay_mentioned', f, (q: any) => q.not('pmm_use_case', 'is', null)),
+    isClay ? Promise.resolve([]) : fetchAllCompetitorRows(sb, 'response_id', f.startDate, f.endDate, (q: any) => q.eq('competitor_name', competitor)),
+  ])
 
-  if (!responses?.length) return []
+  if (!responses.length) return []
 
-  let compIds = new Set<string>()
-
-  if (!isClay) {
-    const { data: rcData } = await sb
-      .from('response_competitors')
-      .select('response_id')
-      .eq('competitor_name', competitor)
-      .gte('run_date', f.startDate)
-      .lte('run_date', f.endDate)
-    compIds = new Set((rcData ?? []).map(r => r.response_id))
-  }
+  const compIds = new Set(rcData.map((r: any) => r.response_id))
 
   const topicMap = new Map<string, { total: number; clay: number; comp: number }>()
   for (const r of responses) {
@@ -766,25 +759,14 @@ export async function getCompetitorPMMPromptDrilldown(
 ): Promise<PMMCompPromptRow[]> {
   const isClay = competitor === 'Clay'
 
-  const { data: responses } = await sb
-    .from('responses')
-    .select('id, prompt_id, platform, run_date, clay_mentioned, clay_mention_snippet, response_text')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
-    .eq('pmm_use_case', pmmUseCase)
+  const [responses, rcData] = await Promise.all([
+    fetchAllFilteredRows(sb, 'id, prompt_id, platform, run_date, clay_mentioned, clay_mention_snippet, response_text', f, (q: any) => q.eq('pmm_use_case', pmmUseCase)),
+    isClay ? Promise.resolve([]) : fetchAllCompetitorRows(sb, 'response_id', f.startDate, f.endDate, (q: any) => q.eq('competitor_name', competitor)),
+  ])
 
-  if (!responses?.length) return []
+  if (!responses.length) return []
 
-  let compIds = new Set<string>()
-  if (!isClay) {
-    const { data: rcData } = await sb
-      .from('response_competitors')
-      .select('response_id')
-      .eq('competitor_name', competitor)
-      .gte('run_date', f.startDate)
-      .lte('run_date', f.endDate)
-    compIds = new Set((rcData ?? []).map(r => r.response_id))
-  }
+  const compIds = new Set(rcData.map((r: any) => r.response_id))
 
   const promptIds = [...new Set(responses.map(r => r.prompt_id).filter(Boolean))]
   const { data: prompts } = await sb
@@ -839,13 +821,8 @@ export async function getClaygentMcpStats(
   byTopic: { topic: string; rate: number }[]
   snippets: { platform: string; topic: string; snippet: string; prompt_text: string; run_date: string }[]
 }> {
-  const { data } = await sb
-    .from('responses')
-    .select('claygent_or_mcp_mentioned, clay_followup_snippet, platform, topic, run_date')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
-
-  if (!data?.length) return { rate: null, byPlatform: [], byTopic: [], snippets: [] }
+  const data = await fetchAllFilteredRows(sb, 'claygent_or_mcp_mentioned, clay_followup_snippet, platform, topic, run_day', f)
+  if (!data.length) return { rate: null, byPlatform: [], byTopic: [], snippets: [] }
 
   const overall = data.filter(r => r.claygent_or_mcp_mentioned === 'Yes').length
   const rate = (overall / data.length) * 100
@@ -880,7 +857,7 @@ export async function getClaygentMcpStats(
         topic: r.topic ?? 'Unknown',
         snippet: r.clay_followup_snippet,
         prompt_text: '',
-        run_date: r.run_date?.split('T')[0] ?? '',
+        run_date: r.run_day ?? '',
       })),
   }
 }
@@ -932,31 +909,26 @@ export async function getCompetitorSentimentVsClay(
   // Get competitor's response_ids for co-mention filtering
   let compResponseIds: Set<string> | null = null
   if (!isClay) {
-    const { data: rcData } = await sb
-      .from('response_competitors')
-      .select('response_id')
-      .eq('competitor_name', competitor)
-      .gte('run_date', f.startDate)
-      .lte('run_date', f.endDate)
-    if (!rcData?.length) return null
-    compResponseIds = new Set(rcData.map(r => r.response_id))
+    const rcData = await fetchAllCompetitorRows(sb, 'response_id', f.startDate, f.endDate, (q: any) => q.eq('competitor_name', competitor))
+    if (!rcData.length) return null
+    compResponseIds = new Set(rcData.map((r: any) => r.response_id))
   }
 
   // Pull Clay-mentioned responses with sentiment + themes fields
-  let query = sb
-    .from('responses')
-    .select('id, prompt_id, platform, run_date, brand_sentiment, brand_sentiment_score, positioning_vs_competitors, clay_mention_snippet, response_text, themes')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
-    .eq('clay_mentioned', 'Yes')
-
-  if (f.platforms?.length) query = query.in('platform', f.platforms)
-
-  const { data } = await query
-  if (!data?.length) return null
+  const data = await fetchAllFilteredRows(
+    sb,
+    'id, prompt_id, platform, run_date, brand_sentiment, brand_sentiment_score, positioning_vs_competitors, clay_mention_snippet, response_text, themes',
+    f,
+    (q: any) => {
+      let qq = q.eq('clay_mentioned', 'Yes')
+      if (f.platforms?.length) qq = qq.in('platform', f.platforms)
+      return qq
+    }
+  )
+  if (!data.length) return null
 
   // For competitor view, filter to co-mentioned responses only
-  const relevant = isClay ? data : data.filter(r => compResponseIds!.has(r.id))
+  const relevant = isClay ? data : data.filter((r: any) => compResponseIds!.has(r.id))
   if (!relevant.length) return null
 
   // Resolve prompt texts
