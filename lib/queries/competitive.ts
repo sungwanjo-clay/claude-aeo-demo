@@ -452,21 +452,22 @@ export async function getCompetitorKPIs(
   const curIds = rcCur.map((r: any) => r.response_id).filter(Boolean)
   const prevIds = rcPrev.map((r: any) => r.response_id).filter(Boolean)
 
-  // Step 2: cross-filter those IDs against responses with all GlobalFilters applied.
-  // This ensures promptType / platform / topic / tags / brandedFilter are all respected,
-  // and gives us topic + platform for topTopic / topPlatform computation.
-  const [filteredCur, filteredPrev, allCur, allPrev] = await Promise.all([
-    curIds.length > 0
-      ? fetchAllFilteredRows(sb, 'id, topic, platform', f, (q: any) => q.in('id', curIds))
-      : Promise.resolve([]),
-    prevIds.length > 0
-      ? fetchAllFilteredRows(sb, 'id', { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }, (q: any) => q.in('id', prevIds))
-      : Promise.resolve([]),
-    fetchAllFilteredRows(sb, 'id', f),
+  // Step 2: Fetch ALL filtered responses for the period (denominator + source for topic/platform).
+  // We do the intersection client-side rather than passing IDs to .in() — large competitors like
+  // OpenAI have thousands of response_ids and a URL-encoded .in(1400 UUIDs) exceeds PostgREST's
+  // URL length limit, causing the query to silently return empty (the 0.0% bug).
+  const [allCur, allPrev] = await Promise.all([
+    fetchAllFilteredRows(sb, 'id, topic, platform', f),
     fetchAllFilteredRows(sb, 'id', { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
   ])
 
-  if (!filteredCur.length && !curIds.length) {
+  // Client-side intersection: keep only responses that also appear in response_competitors
+  const curIdSet = new Set(curIds)
+  const prevIdSet = new Set(prevIds)
+  const filteredCur = allCur.filter((r: any) => curIdSet.has(r.id))
+  const filteredPrev = allPrev.filter((r: any) => prevIdSet.has(r.id))
+
+  if (!curIds.length) {
     return { visibilityScore: null, mentionCount: 0, avgPosition: null, topTopic: null, topPlatform: null, deltaVisibility: null }
   }
 
