@@ -178,15 +178,25 @@ function KpiCompTable({ kpisMap, competitors }: { kpisMap: Record<string, AnyKPI
                 {m.label}
               </td>
               {competitors.map(c => {
+                const isClay = c === 'Anthropic'
                 const kpi = kpisMap[c] as unknown as Record<string, unknown> | undefined
                 const val = kpi ? kpi[m.key] : null
                 const delta = m.deltaKey && kpi ? kpi[m.deltaKey] as number | null : null
+                // Avg Position is only tracked for Anthropic — show "Not tracked" for competitors
+                const isUntrackedPosition = m.key === 'avgPosition' && !isClay
                 return (
                   <td key={c} className="py-2.5 px-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <span className="text-[13px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
-                        {m.fmt(val)}
-                      </span>
+                      {isUntrackedPosition ? (
+                        <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded"
+                          style={{ color: 'rgba(26,25,21,0.35)', background: 'rgba(26,25,21,0.05)' }}>
+                          Not tracked
+                        </span>
+                      ) : (
+                        <span className="text-[13px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
+                          {m.fmt(val)}
+                        </span>
+                      )}
                       {delta != null && <DeltaBadge delta={delta} />}
                     </div>
                   </td>
@@ -432,10 +442,14 @@ export default function CompetitivePage() {
   const limitedComps = showAllHeatmap ? heatmapComps : heatmapComps.slice(0, 50)
   const filteredHeatmap = heatmap.filter(d => limitedComps.includes(d.competitor))
 
-  // Dropdown trigger label
+  // Dropdown trigger label — show all names for ≤3, truncate beyond that
   const triggerLabel = selectedComps.length === 1
     ? selectedComps[0]
-    : `${selectedComps[0]} + ${selectedComps.length - 1} more`
+    : selectedComps.length === 2
+      ? `${selectedComps[0]} vs ${selectedComps[1]}`
+      : selectedComps.length === 3
+        ? `${selectedComps[0]} vs ${selectedComps[1]} vs ${selectedComps[2]}`
+        : `${selectedComps[0]} vs ${selectedComps[1]} +${selectedComps.length - 2} more`
 
   // Tab strip for drill-down sections
   const drillTabs = isMulti ? (
