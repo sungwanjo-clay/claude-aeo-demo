@@ -3,6 +3,16 @@
 import { createContext, useContext, useState, ReactNode } from 'react'
 import type { FilterParams } from '@/lib/queries/types'
 
+/** Format a Date as a local-timezone YYYY-MM-DD string.
+ *  Avoids the toISOString() UTC-conversion bug where e.g. Apr 21 at
+ *  9pm PDT becomes Apr 22 in UTC, shifting the date range by a day. */
+function localDateStr(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 export interface GlobalFilters {
   promptType: 'benchmark' | 'campaign' | 'all'
   tags: string        // 'all' or specific tag value
@@ -60,25 +70,20 @@ export function GlobalFiltersProvider({ children }: { children: ReactNode }) {
     })
   }
 
-  const toQueryParams = (): FilterParams => {
-    // Cap end date to yesterday — today's data is always partial (ingestion mid-day)
-    const yesterday = new Date()
-    yesterday.setDate(yesterday.getDate() - 1)
-    yesterday.setHours(23, 59, 59, 999)
-    const safeEnd = filters.dateRange.end > yesterday ? yesterday : filters.dateRange.end
-
-    return {
-      promptType: filters.promptType,
-      tags: filters.tags,
-      startDate: filters.dateRange.start.toISOString(),
-      endDate: safeEnd.toISOString(),
-      prevStartDate: filters.comparisonRange.start.toISOString(),
-      prevEndDate: filters.comparisonRange.end.toISOString(),
-      platforms: filters.platform === 'all' ? [] : [filters.platform],
-      topics: filters.topics,
-      brandedFilter: filters.brandedFilter,
-    }
-  }
+  const toQueryParams = (): FilterParams => ({
+    promptType: filters.promptType,
+    tags: filters.tags,
+    // Use local date strings + explicit time to avoid UTC offset shifting
+    // the date into the next/previous day. T23:59:59 ensures all timestamps
+    // on the end date are included regardless of when data was ingested.
+    startDate: localDateStr(filters.dateRange.start) + 'T00:00:00',
+    endDate:   localDateStr(filters.dateRange.end)   + 'T23:59:59',
+    prevStartDate: localDateStr(filters.comparisonRange.start) + 'T00:00:00',
+    prevEndDate:   localDateStr(filters.comparisonRange.end)   + 'T23:59:59',
+    platforms: filters.platform === 'all' ? [] : [filters.platform],
+    topics: filters.topics,
+    brandedFilter: filters.brandedFilter,
+  })
 
   const clearAll = () => setFiltersState(defaultFilters())
 
