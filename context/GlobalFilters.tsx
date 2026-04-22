@@ -60,17 +60,25 @@ export function GlobalFiltersProvider({ children }: { children: ReactNode }) {
     })
   }
 
-  const toQueryParams = (): FilterParams => ({
-    promptType: filters.promptType,
-    tags: filters.tags,
-    startDate: filters.dateRange.start.toISOString(),
-    endDate: filters.dateRange.end.toISOString(),
-    prevStartDate: filters.comparisonRange.start.toISOString(),
-    prevEndDate: filters.comparisonRange.end.toISOString(),
-    platforms: filters.platform === 'all' ? [] : [filters.platform],
-    topics: filters.topics,
-    brandedFilter: filters.brandedFilter,
-  })
+  const toQueryParams = (): FilterParams => {
+    // Cap end date to yesterday — today's data is always partial (ingestion mid-day)
+    const yesterday = new Date()
+    yesterday.setDate(yesterday.getDate() - 1)
+    yesterday.setHours(23, 59, 59, 999)
+    const safeEnd = filters.dateRange.end > yesterday ? yesterday : filters.dateRange.end
+
+    return {
+      promptType: filters.promptType,
+      tags: filters.tags,
+      startDate: filters.dateRange.start.toISOString(),
+      endDate: safeEnd.toISOString(),
+      prevStartDate: filters.comparisonRange.start.toISOString(),
+      prevEndDate: filters.comparisonRange.end.toISOString(),
+      platforms: filters.platform === 'all' ? [] : [filters.platform],
+      topics: filters.topics,
+      brandedFilter: filters.brandedFilter,
+    }
+  }
 
   const clearAll = () => setFiltersState(defaultFilters())
 

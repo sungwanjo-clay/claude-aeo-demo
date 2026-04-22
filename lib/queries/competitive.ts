@@ -80,9 +80,15 @@ export async function getCompetitorList(sb: SupabaseClient): Promise<string[]> {
     .from('response_competitors')
     .select('competitor_name')
     .not('competitor_name', 'is', null)
-  if (!data) return ['Clay']
-  const list = [...new Set(data.map(r => r.competitor_name))].sort() as string[]
-  return ['Clay', ...list.filter(c => c.toLowerCase() !== 'clay')]
+  if (!data?.length) return []
+  // Sort by mention frequency descending so top competitors appear first
+  const counts = new Map<string, number>()
+  for (const r of data) {
+    counts.set(r.competitor_name, (counts.get(r.competitor_name) ?? 0) + 1)
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([name]) => name)
 }
 
 // ── Clay-specific KPIs ──────────────────────────────────────────────────────
