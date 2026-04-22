@@ -69,22 +69,18 @@ export async function getCitationShare(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ current: number | null; previous: number | null }> {
-  // Citation rate: clay-cited responses / responses-with-any-citations
+  // Citation rate: clay-cited responses / ALL tracked responses (standard definition)
   const calc = async (start: string, end: string) => {
     const data = await fetchAllFilteredRows(sb, 'cited_domains', { ...f, startDate: start, endDate: end })
     if (!data.length) return null
     let withClayCited = 0
-    let withAnyCitations = 0
     for (const r of data) {
       try {
         const domains = Array.isArray(r.cited_domains) ? r.cited_domains : JSON.parse(r.cited_domains ?? '[]')
-        if (domains.length > 0) {
-          withAnyCitations++
-          if (domains.some((d: string) => typeof d === 'string' && isOwnedDomain(d))) withClayCited++
-        }
+        if (domains.some((d: string) => typeof d === 'string' && isOwnedDomain(d))) withClayCited++
       } catch { /* ignore */ }
     }
-    return withAnyCitations > 0 ? (withClayCited / withAnyCitations) * 100 : null
+    return (withClayCited / data.length) * 100
   }
 
   const [current, previous] = await Promise.all([
@@ -156,29 +152,28 @@ export async function getCitationGaps(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ domain: string; topic: string; prompt_count: number; pct_of_topic: number }[]> {
-  // Competitor domains cited when Clay is not mentioned
-  let query = sb
-    .from('citation_domains')
-    .select('domain, citation_type, responses(topic)')
-    .eq('citation_type', 'Competition')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
-
-  if (f.platforms.length > 0) query = query.in('platform', f.platforms)
-  const { data } = await (query as any).limit(10000)
-
-  // Also get total per topic to calc pct
-  const topicData = await fetchAllFilteredRows(sb, 'topic, clay_mentioned', f)
+  // Step 1: Get filtered response IDs + topics (applies ALL GlobalFilters)
+  const topicData = await fetchAllFilteredRows(sb, 'id, topic', f)
+  if (!topicData.length) return []
 
   const topicTotals = new Map<string, number>()
+  const responseIdToTopic = new Map<string, string>()
   for (const r of topicData) {
-    if (r.topic) topicTotals.set(r.topic, (topicTotals.get(r.topic) ?? 0) + 1)
+    const topic = r.topic ?? 'Unknown'
+    topicTotals.set(topic, (topicTotals.get(topic) ?? 0) + 1)
+    responseIdToTopic.set(String(r.id), topic)
   }
 
-  if (!data) return []
+  // Step 2: Fetch Competition-type citations cross-filtered by those response_ids
+  const validIdList = [...responseIdToTopic.keys()]
+  const allCitations = await fetchAllByResponseIds(sb, 'citation_domains', 'domain, citation_type, response_id', validIdList)
+  const data = (allCitations as any[]).filter(r => r.citation_type === 'Competition')
+
+  if (!data.length) return []
+
   const map = new Map<string, { count: number; topic: string }>()
-  for (const row of data as any[]) {
-    const topic: string = row.responses?.topic ?? 'Unknown'
+  for (const row of data) {
+    const topic: string = responseIdToTopic.get(String(row.response_id)) ?? 'Unknown'
     const key = `${row.domain}|||${topic}`
     const cur = map.get(key) ?? { count: 0, topic }
     cur.count++
@@ -263,11 +258,13 @@ export async function getCompetitorCitationTimeseries(
   const citations = await fetchAllByResponseIds(sb, 'citation_domains', 'domain, response_id, citation_type', validIdList)
   if (!citations.length) return []
 
-  // Step 3: Compute per-date unique response counts
-  // Denominator: unique response_ids with any citation entry per date
-  // Numerator: unique response_ids citing each domain per date
-  // For competitor ranking, only count citation_type = 'Competition' rows
-  const citingByDate = new Map<string, Set<string>>()       // date -> Set<response_id>
+  // Step 3: Compute per-date totals from the full filtered response set
+  // Denominator = total tracked responses per date (standard: citations / total prompts)
+  const totalByDate = new Map<string, number>()
+  for (const [, date] of responseIdToDate) {
+    totalByDate.set(date, (totalByDate.get(date) ?? 0) + 1)
+  }
+
   const domainByDate = new Map<string, Set<string>>()       // `${date}|||${domain}` -> Set<response_id>
   const competitorTotals = new Map<string, number>()         // competitor domain -> total unique responses
 
@@ -279,9 +276,6 @@ export async function getCompetitorCitationTimeseries(
     if (!d) continue
     const isClay = isOwnedDomain(d)
     const key = isClay ? OWNED_DOMAIN_KEY : d
-
-    if (!citingByDate.has(date)) citingByDate.set(date, new Set())
-    citingByDate.get(date)!.add(rid)
 
     const dk = `${date}|||${key}`
     if (!domainByDate.has(dk)) domainByDate.set(dk, new Set())
@@ -302,8 +296,8 @@ export async function getCompetitorCitationTimeseries(
   const topDomains = new Set([...topNonClay, OWNED_DOMAIN_KEY])
 
   const result: { date: string; domain: string; value: number }[] = []
-  for (const date of [...citingByDate.keys()].sort()) {
-    const total = citingByDate.get(date)!.size
+  for (const date of [...totalByDate.keys()].sort()) {
+    const total = totalByDate.get(date) ?? 0
     if (total === 0) continue
     for (const domain of topDomains) {
       const count = domainByDate.get(`${date}|||${domain}`)?.size ?? 0
@@ -317,26 +311,25 @@ export async function getCitationOverallTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; value: number }[]> {
+  // Denominator = total tracked responses per date (not just responses-with-citations)
   const data = await fetchAllFilteredRows(sb, 'run_day, cited_domains', f)
   if (!data.length) return []
 
-  const map = new Map<string, { clayCited: number; withCitations: number }>()
+  const map = new Map<string, { clayCited: number; total: number }>()
   for (const row of data) {
     const date = row.run_day ?? ''
     if (!date) continue
+    const cur = map.get(date) ?? { clayCited: 0, total: 0 }
+    cur.total++
     try {
       const domains = Array.isArray(row.cited_domains) ? row.cited_domains : JSON.parse(row.cited_domains ?? '[]')
-      if (domains.length > 0) {
-        const cur = map.get(date) ?? { clayCited: 0, withCitations: 0 }
-        cur.withCitations++
-        if (domains.some((d: string) => typeof d === 'string' && isOwnedDomain(d))) cur.clayCited++
-        map.set(date, cur)
-      }
+      if (domains.some((d: string) => typeof d === 'string' && isOwnedDomain(d))) cur.clayCited++
     } catch { /* ignore */ }
+    map.set(date, cur)
   }
 
   return Array.from(map.entries())
-    .map(([date, { clayCited, withCitations }]) => ({ date, value: withCitations > 0 ? (clayCited / withCitations) * 100 : 0 }))
+    .map(([date, { clayCited, total }]) => ({ date, value: total > 0 ? (clayCited / total) * 100 : 0 }))
     .sort((a, b) => a.date.localeCompare(b.date))
 }
 
@@ -414,29 +407,30 @@ export async function getClayURLsByType(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<ClayURLTypeGroup[]> {
-  let query = sb
-    .from('citation_domains')
-    .select('url, title, url_type, citation_type, platform, domain, responses(topic)')
-    .ilike('domain', '%clay%')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
+  // Step 1: Get all filtered response IDs (applies ALL GlobalFilters)
+  const responses = await fetchAllFilteredRows(sb, 'id', f)
+  if (!responses.length) return []
 
-  if (f.platforms?.length) query = query.in('platform', f.platforms)
+  const validIdList = responses.map((r: any) => String(r.id))
 
-  const { data, error } = await query.limit(5000)
-  if (error) { console.error('getClayURLsByType', error); return [] }
+  // Step 2: Fetch citation_domains cross-filtered by response_ids, then keep only owned domains
+  const data = await fetchAllByResponseIds(
+    sb, 'citation_domains',
+    'url, title, url_type, citation_type, platform, domain, responses(topic)',
+    validIdList
+  )
   if (!data?.length) return []
 
-  // Also filter client-side for safety
-  const clayRows = data.filter((r: any) => (r.domain ?? '').toLowerCase().includes('clay'))
+  // Keep only rows where domain is an owned domain (anthropic.com / claude.ai)
+  const ownedRows = (data as any[]).filter(r => isOwnedDomain(r.domain ?? ''))
+  if (!ownedRows.length) return []
 
-  if (!clayRows.length) return []
-  const grandTotal = clayRows.length
+  const grandTotal = ownedRows.length  // share_pct is relative to Anthropic's own citations
 
   type URLAcc = { count: number; title: string | null; topics: Set<string>; platforms: Set<string>; citation_type: string | null }
   const typeMap = new Map<string, Map<string, URLAcc>>()
 
-  for (const row of clayRows as any[]) {
+  for (const row of ownedRows) {
     const ut = row.url_type ?? 'Other'
     const url = row.url ?? ''
     if (!url) continue
@@ -494,27 +488,20 @@ export async function getTopCitedDomainsEnhanced(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<TopDomainRow[]> {
-  // Fetch citation rows and total response count in parallel
-  let query = sb
-    .from('citation_domains')
-    .select('domain, url, title, citation_type, url_type, response_id, responses(topic)')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
+  // Step 1: Get all filtered response IDs (applies ALL GlobalFilters: topic, promptType, tags, branded, platform)
+  const responses = await fetchAllFilteredRows(sb, 'id', f)
+  if (!responses.length) return []
 
-  if (f.platforms?.length) query = query.in('platform', f.platforms)
+  const totalResponses = responses.length   // denominator = total tracked prompts
+  const validIdList = responses.map((r: any) => String(r.id))
 
-  const { data, error } = await query.limit(5000)
-
-  if (error) { console.error('getTopCitedDomainsEnhanced', error); return [] }
+  // Step 2: Fetch citation_domains cross-filtered by those response_ids (so topic/promptType/etc. are respected)
+  const data = await fetchAllByResponseIds(
+    sb, 'citation_domains',
+    'domain, url, title, citation_type, url_type, response_id, responses(topic)',
+    validIdList
+  )
   if (!data?.length) return []
-
-  // Denominator = unique response_ids that appear in citation_domains (responses with any citation)
-  // This matches the Citation Rate KPI denominator
-  const allCitedResponseIds = new Set<string>()
-  for (const row of data as any[]) {
-    if (row.response_id) allCitedResponseIds.add(String(row.response_id))
-  }
-  const totalResponses = allCitedResponseIds.size || data.length
 
   type DomainAcc = {
     responseIds: Set<string>; is_clay: boolean; typeCounts: Map<string, number>
@@ -540,6 +527,7 @@ export async function getTopCitedDomainsEnhanced(
 
   return Array.from(domainMap.entries())
     .map(([domain, { responseIds, is_clay, typeCounts, urls }]) => {
+      // citation_count = unique responses that cited this domain
       const citation_count = responseIds.size || [...urls.values()].reduce((s, u) => s + u.count, 0)
       const citation_type = typeCounts.size > 0
         ? [...typeCounts.entries()].sort((a, b) => b[1] - a[1])[0][0]
@@ -547,6 +535,7 @@ export async function getTopCitedDomainsEnhanced(
       return {
         domain,
         citation_count,
+        // share_pct = % of ALL tracked prompts that cited this domain (standard definition)
         share_pct: totalResponses > 0 ? (citation_count / totalResponses) * 100 : 0,
         is_clay,
         citation_type,
@@ -626,35 +615,45 @@ export async function getCitationActivityTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; clayShare: number; total: number }[]> {
-  let q = sb
-    .from('citation_domains')
-    .select('run_date, domain')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
+  // Step 1: Get filtered response IDs with run_day (applies ALL GlobalFilters)
+  const responses = await fetchAllFilteredRows(sb, 'id, run_day', f)
+  if (!responses.length) return []
 
-  if (f.platforms?.length) q = q.in('platform', f.platforms)
-
-  const { data, error } = await (q as any).limit(50000)
-  if (error) { console.error('getCitationActivityTimeseries', error); return [] }
-  if (!data?.length) return []
-
-  const byDate = new Map<string, { total: number; clay: number }>()
-  for (const r of data) {
-    const date = (r.run_date ?? '').substring(0, 10)
+  // Build total responses per date (denominator)
+  const totalByDate = new Map<string, number>()
+  const responseIdToDate = new Map<string, string>()
+  for (const r of responses) {
+    const date = r.run_day ?? ''
     if (!date) continue
-    const cur = byDate.get(date) ?? { total: 0, clay: 0 }
-    cur.total++
-    if ((r.domain ?? '').toLowerCase().includes('clay')) cur.clay++
-    byDate.set(date, cur)
+    totalByDate.set(date, (totalByDate.get(date) ?? 0) + 1)
+    responseIdToDate.set(String(r.id), date)
   }
 
-  return [...byDate.entries()]
-    .map(([date, { total, clay }]) => ({
-      date,
-      total,
-      clayShare: total > 0 ? (clay / total) * 100 : 0,
-    }))
-    .sort((a, b) => a.date.localeCompare(b.date))
+  // Step 2: Fetch citation_domains cross-filtered by those response_ids
+  const validIdList = [...responseIdToDate.keys()]
+  const data = await fetchAllByResponseIds(sb, 'citation_domains', 'domain, response_id', validIdList)
+
+  // Count citations per date (total citations + owned-domain citations)
+  const citByDate = new Map<string, { total: number; clay: number }>()
+  for (const r of data as any[]) {
+    const date = responseIdToDate.get(String(r.response_id))
+    if (!date) continue
+    const cur = citByDate.get(date) ?? { total: 0, clay: 0 }
+    cur.total++
+    if (isOwnedDomain(r.domain ?? '')) cur.clay++
+    citByDate.set(date, cur)
+  }
+
+  return [...totalByDate.keys()]
+    .sort()
+    .map(date => {
+      const cit = citByDate.get(date) ?? { total: 0, clay: 0 }
+      return {
+        date,
+        total: cit.total,
+        clayShare: cit.total > 0 ? (cit.clay / cit.total) * 100 : 0,
+      }
+    })
 }
 
 // ── Citation coverage: % of responses with any citation + avg per cited ────────

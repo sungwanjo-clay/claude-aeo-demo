@@ -48,7 +48,8 @@ async function fetchAllCompetitorRows(
   columns: string,
   startDate: string,
   endDate: string,
-  extraFilters?: (q: any) => any
+  extraFilters?: (q: any) => any,
+  f?: FilterParams
 ): Promise<any[]> {
   const PAGE = 1000
   const rows: any[] = []
@@ -57,6 +58,8 @@ async function fetchAllCompetitorRows(
     let q = sb.from('response_competitors').select(columns)
       .gte('run_date', startDate).lte('run_date', endDate)
       .range(from, from + PAGE - 1)
+    // Apply platform filter when response_competitors has the column and caller passes FilterParams
+    if (f?.platforms?.length) q = q.in('platform', f.platforms)
     if (extraFilters) q = extraFilters(q)
     const { data } = await q
     if (!data?.length) break
@@ -65,6 +68,25 @@ async function fetchAllCompetitorRows(
     from += PAGE
   }
   return rows
+}
+
+/** Cross-filter response_competitors by a set of already-filtered response_ids
+ *  (batched 100 at a time to stay under Supabase's 1000-row per-request cap). */
+async function fetchCompetitorRowsByResponseIds(
+  sb: SupabaseClient,
+  columns: string,
+  ids: string[]
+): Promise<any[]> {
+  if (!ids.length) return []
+  const CHUNK = 100
+  const chunks: string[][] = []
+  for (let i = 0; i < ids.length; i += CHUNK) chunks.push(ids.slice(i, i + CHUNK))
+  const pages = await Promise.all(
+    chunks.map(chunk =>
+      sb.from('response_competitors').select(columns).in('response_id', chunk).then((r: any) => r.data ?? [])
+    )
+  )
+  return pages.flat()
 }
 
 /** Derive a search slug from a competitor name for domain matching.
@@ -132,21 +154,17 @@ export async function getClayKPIs(
   const topTopic = [...topicMap.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
   const topPlatform = [...platformMap.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
 
-  // Citation rate — same formula as getCitationShare: clay-cited / responses-with-any-citations
-  // Uses responses.cited_domains so it matches the KPI on every other page
+  // Citation rate = Anthropic-cited responses / ALL tracked responses (standard: citations / total prompts)
   const calcCitRate = (rows: any[]) => {
+    if (!rows.length) return null
     let withClayCited = 0
-    let withAnyCitations = 0
     for (const r of rows) {
       try {
         const domains = Array.isArray(r.cited_domains) ? r.cited_domains : JSON.parse(r.cited_domains ?? '[]')
-        if (domains.length > 0) {
-          withAnyCitations++
-          if (domains.some((d: string) => typeof d === 'string' && d.includes('clay.com'))) withClayCited++
-        }
+        if (domains.some((d: string) => typeof d === 'string' && (d.includes('anthropic.com') || d.includes('claude.ai')))) withClayCited++
       } catch { /* ignore */ }
     }
-    return withAnyCitations > 0 ? (withClayCited / withAnyCitations) * 100 : null
+    return (withClayCited / rows.length) * 100
   }
   const citRate = calcCitRate(cur)
   const citRatePrev = calcCitRate(prev)
@@ -194,23 +212,30 @@ export async function getCompetitorCitationRate(
 ): Promise<{ rate: number | null; count: number; deltaRate: number | null }> {
   const slug = domainSlug(competitor)
 
-  const [citCur, citPrev, totalCur, totalPrev] = await Promise.all([
-    sb.from('citation_domains').select('domain')
-      .gte('run_date', f.startDate).lte('run_date', f.endDate)
-      .ilike('domain', `%${slug}%`),
-    sb.from('citation_domains').select('domain')
-      .gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate)
-      .ilike('domain', `%${slug}%`),
-    sb.from('responses').select('id', { count: 'exact', head: true })
-      .gte('run_date', f.startDate).lte('run_date', f.endDate),
-    sb.from('responses').select('id', { count: 'exact', head: true })
-      .gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate),
+  // Apply platform filter to citation_domains if set
+  const applyPlatformToCit = (q: any) =>
+    f.platforms?.length ? q.in('platform', f.platforms) : q
+
+  const [citCur, citPrev, allCur, allPrev] = await Promise.all([
+    applyPlatformToCit(
+      sb.from('citation_domains').select('domain')
+        .gte('run_date', f.startDate).lte('run_date', f.endDate)
+        .ilike('domain', `%${slug}%`)
+    ),
+    applyPlatformToCit(
+      sb.from('citation_domains').select('domain')
+        .gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate)
+        .ilike('domain', `%${slug}%`)
+    ),
+    // Use fetchAllFilteredRows so the denominator respects all GlobalFilters (run_day, promptType, tags, etc.)
+    fetchAllFilteredRows(sb, 'id', f),
+    fetchAllFilteredRows(sb, 'id', { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
   ])
 
   const curCitations = citCur.data?.length ?? 0
   const prevCitations = citPrev.data?.length ?? 0
-  const curTotal = totalCur.count ?? 0
-  const prevTotal = totalPrev.count ?? 0
+  const curTotal = allCur.length
+  const prevTotal = allPrev.length
 
   const rate = curTotal > 0 ? (curCitations / curTotal) * 100 : null
   const prevRate = prevTotal > 0 ? (prevCitations / prevTotal) * 100 : null
@@ -260,11 +285,16 @@ export async function getWinnersAndLosers(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ competitor_name: string; current: number; previous: number | null; delta: number | null; isNew: boolean }[]> {
-  const [rcCurData, rcPrevData, totalCur, totalPrev] = await Promise.all([
-    fetchAllCompetitorRows(sb, 'competitor_name, response_id', f.startDate, f.endDate),
-    fetchAllCompetitorRows(sb, 'competitor_name, response_id', f.prevStartDate, f.prevEndDate),
+  // Step 1: Get all filtered response IDs for both periods — applies ALL GlobalFilters
+  const [totalCur, totalPrev] = await Promise.all([
     fetchAllFilteredRows(sb, 'id', f),
     fetchAllFilteredRows(sb, 'id', { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
+  ])
+
+  // Step 2: Cross-filter response_competitors by those IDs so topic/promptType/branded are respected
+  const [rcCurData, rcPrevData] = await Promise.all([
+    fetchCompetitorRowsByResponseIds(sb, 'competitor_name, response_id', totalCur.map((r: any) => r.id)),
+    fetchCompetitorRowsByResponseIds(sb, 'competitor_name, response_id', totalPrev.map((r: any) => r.id)),
   ])
 
   const totalNow = totalCur.length
@@ -413,18 +443,37 @@ export async function getCompetitorKPIs(
   f: FilterParams,
   competitor: string
 ): Promise<{ visibilityScore: number | null; mentionCount: number; avgPosition: number | null; topTopic: string | null; topPlatform: string | null; deltaVisibility: number | null }> {
-  const [rcData, total, prevRcData, prevTotal] = await Promise.all([
-    fetchAllCompetitorRows(sb, 'response_id, platform, topic', f.startDate, f.endDate, (q: any) => q.eq('competitor_name', competitor)),
-    fetchAllFilteredRows(sb, 'id', f),
+  // Step 1: get all response_ids for this competitor from response_competitors (date range only)
+  const [rcCur, rcPrev] = await Promise.all([
+    fetchAllCompetitorRows(sb, 'response_id', f.startDate, f.endDate, (q: any) => q.eq('competitor_name', competitor)),
     fetchAllCompetitorRows(sb, 'response_id', f.prevStartDate, f.prevEndDate, (q: any) => q.eq('competitor_name', competitor)),
+  ])
+
+  const curIds = rcCur.map((r: any) => r.response_id).filter(Boolean)
+  const prevIds = rcPrev.map((r: any) => r.response_id).filter(Boolean)
+
+  // Step 2: cross-filter those IDs against responses with all GlobalFilters applied.
+  // This ensures promptType / platform / topic / tags / brandedFilter are all respected,
+  // and gives us topic + platform for topTopic / topPlatform computation.
+  const [filteredCur, filteredPrev, allCur, allPrev] = await Promise.all([
+    curIds.length > 0
+      ? fetchAllFilteredRows(sb, 'id, topic, platform', f, (q: any) => q.in('id', curIds))
+      : Promise.resolve([]),
+    prevIds.length > 0
+      ? fetchAllFilteredRows(sb, 'id', { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }, (q: any) => q.in('id', prevIds))
+      : Promise.resolve([]),
+    fetchAllFilteredRows(sb, 'id', f),
     fetchAllFilteredRows(sb, 'id', { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
   ])
 
-  if (!rcData.length) return { visibilityScore: null, mentionCount: 0, avgPosition: null, topTopic: null, topPlatform: null, deltaVisibility: null }
+  if (!filteredCur.length && !curIds.length) {
+    return { visibilityScore: null, mentionCount: 0, avgPosition: null, topTopic: null, topPlatform: null, deltaVisibility: null }
+  }
 
+  // response_competitors has no topic column — derive from the responses join above
   const topicMap = new Map<string, number>()
   const platformMap = new Map<string, number>()
-  for (const r of rcData) {
+  for (const r of filteredCur) {
     if (r.topic) topicMap.set(r.topic, (topicMap.get(r.topic) ?? 0) + 1)
     if (r.platform) platformMap.set(r.platform, (platformMap.get(r.platform) ?? 0) + 1)
   }
@@ -432,13 +481,13 @@ export async function getCompetitorKPIs(
   const topTopic = [...topicMap.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
   const topPlatform = [...platformMap.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
 
-  const currentVis = total.length ? (rcData.length / total.length) * 100 : null
-  const prevVis = prevTotal.length ? (prevRcData.length / prevTotal.length) * 100 : null
+  const currentVis = allCur.length > 0 ? (filteredCur.length / allCur.length) * 100 : null
+  const prevVis = allPrev.length > 0 ? (filteredPrev.length / allPrev.length) * 100 : null
   const deltaVisibility = currentVis !== null && prevVis !== null ? currentVis - prevVis : null
 
   return {
     visibilityScore: currentVis,
-    mentionCount: rcData.length,
+    mentionCount: filteredCur.length,
     avgPosition: null,
     topTopic,
     topPlatform,
@@ -453,7 +502,7 @@ export async function getPlatformHeatmap(
   f: FilterParams
 ): Promise<{ competitor: string; platform: string; visibility_score: number }[]> {
   const [rc, totalData] = await Promise.all([
-    fetchAllCompetitorRows(sb, 'competitor_name, platform', f.startDate, f.endDate),
+    fetchAllCompetitorRows(sb, 'competitor_name, platform', f.startDate, f.endDate, undefined, f),
     fetchAllFilteredRows(sb, 'platform', f),
   ])
 
@@ -485,7 +534,8 @@ export async function getCompetitorVsClayTimeseries(
   f: FilterParams,
   competitor: string
 ): Promise<{ date: string; clay: number; competitor: number }[]> {
-  // Get all response IDs in date range so we can map competitor rows to correct dates
+  // allResponses is filtered by ALL GlobalFilters; responseIdToDay acts as the cross-filter gate —
+  // competitor rows whose response_id is missing from the map are silently excluded below.
   const [allResponses, compRcData] = await Promise.all([
     fetchAllFilteredRows(sb, 'id, run_day, clay_mentioned', f),
     fetchAllCompetitorRows(sb, 'response_id', f.startDate, f.endDate, (q: any) => q.eq('competitor_name', competitor)),

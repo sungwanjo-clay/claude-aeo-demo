@@ -4,7 +4,8 @@ import type { FilterParams, ThemeRow, TimeseriesRow } from './types'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function applyFilters(query: any, f: FilterParams): any {
-  query = query.gte('run_date', f.startDate).lte('run_date', f.endDate)
+  // Use run_day (DATE column) for date filtering to avoid UTC timezone skew from run_date (TIMESTAMPTZ)
+  query = query.gte('run_day', f.startDate.substring(0, 10)).lte('run_day', f.endDate.substring(0, 10))
   if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
   if (f.topics && f.topics.length > 0) query = query.in('topic', f.topics)
   if (f.brandedFilter !== 'all') {
@@ -59,7 +60,7 @@ export async function getSentimentTimeseries(
   f: FilterParams
 ): Promise<{ date: string; positive: number; neutral: number; negative: number }[]> {
   const { data } = await applyFilters(
-    sb.from('responses').select('run_date, brand_sentiment, clay_mentioned'),
+    sb.from('responses').select('run_day, brand_sentiment, clay_mentioned'),
     f
   )
   if (!data) return []
@@ -67,7 +68,7 @@ export async function getSentimentTimeseries(
   const map = new Map<string, { pos: number; neu: number; neg: number; total: number }>()
   for (const row of data) {
     if (row.clay_mentioned !== 'Yes') continue
-    const date = row.run_date?.split('T')[0] ?? ''
+    const date = row.run_day ?? ''
     const cur = map.get(date) ?? { pos: 0, neu: 0, neg: 0, total: 0 }
     cur.total++
     if (row.brand_sentiment === 'Positive') cur.pos++
@@ -192,7 +193,7 @@ export async function getSentimentNarratives(
   f: FilterParams
 ): Promise<NarrativeGroup[]> {
   const { data } = await applyFilters(
-    sb.from('responses').select('brand_sentiment, themes, topic, platform, run_date, clay_mentioned'),
+    sb.from('responses').select('brand_sentiment, themes, topic, platform, run_day, clay_mentioned'),
     f
   ).limit(5000)
   if (!data) return []
@@ -213,7 +214,7 @@ export async function getSentimentNarratives(
           text: t.snippet,
           platform: row.platform ?? '',
           topic: row.topic ?? '',
-          date: row.run_date?.split('T')[0] ?? '',
+          date: row.run_day ?? '',
         })
       }
     }
@@ -236,7 +237,7 @@ export async function getCompetitivePositioningEntries(
   f: FilterParams
 ): Promise<PositioningEntry[]> {
   const { data } = await applyFilters(
-    sb.from('responses').select('positioning_vs_competitors, topic, platform, run_date, clay_mentioned'),
+    sb.from('responses').select('positioning_vs_competitors, topic, platform, run_day, clay_mentioned'),
     f
   ).limit(2000)
   if (!data) return []
@@ -246,7 +247,7 @@ export async function getCompetitivePositioningEntries(
       topic: r.topic ?? 'General',
       platform: r.platform ?? '',
       snippet: r.positioning_vs_competitors,
-      date: r.run_date?.split('T')[0] ?? '',
+      date: r.run_day ?? '',
     }))
     .sort((a: any, b: any) => b.date.localeCompare(a.date))
 }

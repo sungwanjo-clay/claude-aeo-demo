@@ -365,24 +365,21 @@ export async function getShareOfVoice(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<CompetitorRow[]> {
+  // Step 1: Get all filtered response IDs (applies ALL GlobalFilters via run_day + filters)
   const responses = await fetchAllFilteredRows(sb, 'id', f)
   if (!responses?.length) return []
-  const idSet = new Set(responses.map((r: any) => r.id))
 
-  const { data } = await sb
-    .from('response_competitors')
-    .select('competitor_name, response_id')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
-    .limit(20000)
-
-  if (!data?.length) return []
+  // Step 2: Cross-filter response_competitors by those IDs — avoids run_date issues and
+  // ensures topic/promptType/branded/tags filters are respected.
+  const validIdList = responses.map((r: any) => r.id)
+  const rc = await fetchAllByResponseIds(sb, 'response_competitors', 'competitor_name, response_id', validIdList)
+  if (!rc?.length) return []
 
   const counts = new Map<string, number>()
   let total = 0
-  for (const row of data) {
-    if (!idSet.has(row.response_id)) continue
+  for (const row of rc) {
     const name = row.competitor_name ?? ''
+    if (!name) continue
     counts.set(name, (counts.get(name) ?? 0) + 1)
     total++
   }
@@ -409,34 +406,23 @@ export async function getAvgPosition(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ current: number | null; previous: number | null }> {
-  const fetch = async (start: string, end: string) => {
-    let q = sb
-      .from('responses')
-      .select('clay_mention_position')
-      .gte('run_date', start)
-      .lte('run_date', end)
-      .eq('clay_mentioned', 'Yes')
-      .not('clay_mention_position', 'is', null)
-
-    if (f.platforms && f.platforms.length > 0) q = q.in('platform', f.platforms)
-    if (f.topics && f.topics.length > 0) q = q.in('topic', f.topics)
-    if (f.brandedFilter !== 'all') {
-      const val = f.brandedFilter === 'branded' ? 'Branded' : 'Non-Branded'
-      q = q.eq('branded_or_non_branded', val)
-    }
-    if (f.promptType === 'benchmark') q = q.eq('prompt_type', 'benchmark')
-    else if (f.promptType === 'campaign') q = q.not('prompt_type', 'is', null).neq('prompt_type', 'benchmark')
-    if (f.tags && f.tags !== 'all') q = q.eq('tags', f.tags)
-
-    const { data } = await q
-    if (!data?.length) return null
-    const sum = data.reduce((acc, r) => acc + (r.clay_mention_position ?? 0), 0)
+  // Use fetchAllFilteredRows so date comparison uses run_day (not run_date) and
+  // all GlobalFilters (platform, topic, promptType, tags, brandedFilter) are applied.
+  const calc = async (start: string, end: string) => {
+    const data = await fetchAllFilteredRows(
+      sb,
+      'clay_mention_position',
+      { ...f, startDate: start, endDate: end },
+      (q: any) => q.eq('clay_mentioned', 'Yes').not('clay_mention_position', 'is', null)
+    )
+    if (!data.length) return null
+    const sum = data.reduce((acc: number, r: any) => acc + (r.clay_mention_position ?? 0), 0)
     return sum / data.length
   }
 
   const [current, previous] = await Promise.all([
-    fetch(f.startDate, f.endDate),
-    fetch(f.prevStartDate, f.prevEndDate),
+    calc(f.startDate, f.endDate),
+    calc(f.prevStartDate, f.prevEndDate),
   ])
   return { current, previous }
 }
