@@ -204,7 +204,9 @@ export async function getSentimentNarratives(
     const themes = Array.isArray(row.themes) ? row.themes : []
     for (const t of themes) {
       if (!t.theme) continue
-      const sentiment = (t.sentiment ?? row.brand_sentiment ?? 'Neutral') as string
+      const raw = (t.sentiment ?? row.brand_sentiment ?? 'Neutral') as string
+      const lower = raw.toLowerCase()
+      const sentiment = lower === 'positive' ? 'Positive' : lower === 'negative' ? 'Negative' : 'Neutral'
       const key = `${t.theme}|||${sentiment}`
       if (!map.has(key)) map.set(key, { sentiment, occurrences: 0, snippets: [] })
       const cur = map.get(key)!
